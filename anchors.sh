@@ -21,6 +21,48 @@ anc() {
       echo -e "${CYAN}⚓ Anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$(pwd)${RESET}"
       ;;
 
+    
+    set-ssh)
+      local name="${2:-default}"
+      local ssh_url="$3"
+
+      if [[ -z "$ssh_url" || "$ssh_url" != ssh://* ]]; then
+        echo -e "${YELLOW}Usage:${RESET} anc set-ssh <name> <ssh://user@host:/remote/path>${RESET}"
+        return 1
+      fi
+
+      # Parse URL: ssh://user@host:/path → user@host and path
+      local full="${ssh_url#ssh://}"     # remove ssh://
+      local user_host="${full%%:*}"      # before first colon
+      local remote_path="${full#*:}"     # after first colon
+
+      if [[ -z "$user_host" || -z "$remote_path" ]]; then
+        echo -e "${RED}❌ Invalid SSH path format${RESET}"
+        return 1
+      fi
+
+      echo -e "${BLUE}🔌 Testing SSH connection to ${BOLD}$user_host${RESET}${BLUE}...${RESET}"
+
+      if ssh "$user_host" "test -d '$remote_path'" 2>/dev/null; then
+        echo "$ssh_url" > "$anchor_dir/$name"
+        echo -e "${CYAN}🌐 Remote anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$ssh_url${RESET}"
+      else
+        echo -e "${RED}❌ Could not connect or directory does not exist: $remote_path${RESET}"
+        return 1
+      fi
+      ;;
+
+
+
+
+
+
+
+
+
+
+
+
     note)
       if [[ -z "$2" ]]; then
         echo -e "${YELLOW}Usage:${RESET} anc note <anchor> [message]"
@@ -96,6 +138,8 @@ anc() {
       fi
       ;;
 
+    
+    
     run)
       shift
       if [[ "$1" == --filter ]]; then
@@ -118,29 +162,46 @@ anc() {
             local path
             path="$(cat "$file")"
             echo -e "${CYAN}⚓ Running in '$name' → $path:${RESET}"
-            (cd "$path" && eval "$cmd")
+
+            if [[ "$path" == ssh://* ]]; then
+              local path_no_proto="${path#ssh://}"
+              local user_host="${path_no_proto%%:*}"
+              local remote_path="${path_no_proto#*:}"
+              ssh "$user_host" -t "cd '$remote_path' && $cmd"
+            else
+              (cd "$path" && eval "$cmd")
+            fi
           fi
         done
       else
         local anchor="$1"
         shift
         local cmd="$*"
+
         if [[ -z "$anchor" || -z "$cmd" ]]; then
           echo -e "${YELLOW}Usage:${RESET} anc run <anchor> <command>"
           return 1
         fi
+
         if [[ ! -f "$anchor_dir/$anchor" ]]; then
           echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
           return 1
         fi
+
         local path
         path="$(cat "$anchor_dir/$anchor")"
         echo -e "${CYAN}⚓ Running in '$anchor' → $path:${RESET}"
-        (cd "$path" && eval "$cmd")
+
+        if [[ "$path" == ssh://* ]]; then
+          local path_no_proto="${path#ssh://}"
+          local user_host="${path_no_proto%%:*}"
+          local remote_path="${path_no_proto#*:}"
+          ssh "$user_host" -t "cd '$remote_path' && $cmd"
+        else
+          (cd "$path" && eval "$cmd")
+        fi
       fi
       ;;
-
-
     
     
     
@@ -207,13 +268,6 @@ anc() {
 
 
 
-
-
-
-
-
-
-
     del)
       if [[ -z "$2" ]]; then
         echo -e "${YELLOW}Usage:${RESET} anc del <name>"
@@ -263,71 +317,103 @@ anc() {
       fi
       ;;
 
+    
     cp|mv)
       local cmd="$1"
       local file="$2"
-      local anchor_path="$3"
-      if [[ -z "$file" || -z "$anchor_path" ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc $cmd <file> <anchor>/path"
+      local anchor="$3"
+
+      if [[ -z "$file" || -z "$anchor" ]]; then
+        echo -e "${YELLOW}Usage:${RESET} anc $cmd <file> <anchor>${RESET}"
         return 1
       fi
+
       if [[ ! -f "$file" ]]; then
         echo -e "${RED}❌ File '$file' does not exist${RESET}"
         return 1
       fi
-      local anchor="${anchor_path%%/*}"
-      local subpath="${anchor_path#*/}"
+
       if [[ ! -f "$anchor_dir/$anchor" ]]; then
         echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
         return 1
       fi
-      local dest_dir
-      dest_dir="$(cat "$anchor_dir/$anchor")"
-      if [[ "$subpath" != "$anchor_path" ]]; then
-        dest_dir="$dest_dir/$subpath"
-        mkdir -p "$(dirname "$dest_dir")"
-      fi
-      $cmd "$file" "$dest_dir" && echo -e "${GREEN}✅ ${cmd^}ed '$file' to '$dest_dir'${RESET}"
-      ;;
 
+      local path
+      path="$(cat "$anchor_dir/$anchor")"
+
+      if [[ "$path" == ssh://* ]]; then
+        # Remote destination
+        local path_no_proto="${path#ssh://}"
+        local user_host="${path_no_proto%%:*}"
+        local remote_path="${path_no_proto#*:}"
+        local remote_file="$remote_path/$(basename "$file")"
+        echo -e "${BLUE}📡 Sending '$file' to remote anchor '$anchor': $user_host:$remote_file${RESET}"
+        if [[ "$cmd" == "cp" ]]; then
+          scp "$file" "$user_host:$remote_file"
+        else
+          scp "$file" "$user_host:$remote_file" && rm "$file"
+        fi
+      else
+        # Local destination
+        local dest="$path/$(basename "$file")"
+        $cmd "$file" "$dest" && echo -e "${GREEN}✅ ${cmd^}ed '$file' to '$dest'${RESET}"
+      fi
+      ;;
+    
     help)
       echo -e "${BOLD}📖 anc - Simple anchor system for directories and files${RESET}\n"
-      echo -e "${CYAN}🎯 Navigation:${RESET}"
-      echo -e "  anc set [name]              - ⚓ Set anchor (default if no name)"
-      echo -e "  anc <name>                  - ⚓ Go to the specified anchor"
-      echo -e "  anc <name> ls               - 📂 List contents of anchor directory"
-      echo -e "  anc <name> tree             - 🌲 Tree view of anchor directory"
-      echo -e "  anc                         - ⚓ Go to the 'default' anchor"
-      echo -e "  anc ls                      - 📌 List all anchors with notes"
-      echo -e "  anc show <anchor>           - 🔍 Show metadata and info"
-      echo
-      echo -e "${CYAN}🛠️  Management:${RESET}"
-      echo -e "  anc del <name>              - 🗑️ Delete the specified anchor"
-      echo -e "  anc prune                   - 🧹 Delete anchors pointing to missing directories"
-      echo -e "  anc rename <old> <new>      - 🔄 Rename an anchor"
-      echo -e "  anc note <name> [message]   - 📝 Add or update note for an anchor"
-      echo -e "  anc meta <name> k=v [...]   - 🧩 Set metadata key=value pairs"
-      echo
-      echo -e "${CYAN}▶️  Commands:${RESET}"
-      echo -e "  anc run <anchor> <cmd>      - ▶️ Run a command in the anchor directory"
-      echo -e "  anc run --filter k=v <cmd>  - 🔍 Run command in anchors matching metadata"
-      echo
-      echo -e "${CYAN}📂 File Operations:${RESET}"
-      echo -e "  anc cp <file> <anchor>/path - 📁 Copy file to anchor subpath"
-      echo -e "  anc mv <file> <anchor>/path - 🚚 Move file to anchor subpath"
-      ;;
 
+      echo -e "${CYAN}🎯 Navigation:${RESET}"
+      echo -e "  anc                        - ⚓ Go to the 'default' anchor"
+      echo -e "  anc <name>                - ⚓ Jump to a specific anchor"
+      echo -e "  anc <name> ls             - 📂 List contents of anchor directory"
+      echo -e "  anc <name> tree           - 🌲 Tree view of anchor directory"
+      echo -e "  anc show <name>           - 🔍 Show path, note, and metadata"
+      echo -e "  anc ls [--filter k=v]     - 📌 List all anchors (optionally filtered by metadata)"
+      echo
+
+      echo -e "${CYAN}🛠️  Anchor Management:${RESET}"
+      echo -e "  anc set [name]            - 📍 Set anchor for current directory"
+      echo -e "  anc set-ssh <name> <url>  - 🌐 Set anchor to remote SSH path"
+      echo -e "  anc del <name>            - 🗑️ Delete an anchor"
+      echo -e "  anc rename <old> <new>    - 🔄 Rename an anchor"
+      echo -e "  anc prune                 - 🧹 Remove anchors pointing to non-existent dirs"
+      echo -e "  anc note <name> [msg]     - 📝 Add or update note for an anchor"
+      echo -e "  anc meta <name> k=v ...   - 🧩 Set metadata (key=value) for an anchor"
+      echo
+
+      echo -e "${CYAN}▶️  Execute Commands:${RESET}"
+      echo -e "  anc run <name> <cmd>      - 🚀 Run command inside anchor directory"
+      echo -e "  anc run --filter k=v <cmd> - 🔎 Run command in anchors matching metadata"
+      echo
+
+      echo -e "${CYAN}📂 File Transfer:${RESET}"
+      echo -e "  anc cp <file> <anchor>    - 📥 Copy local file to anchor's directory"
+      echo -e "  anc mv <file> <anchor>    - 🚚 Move local file to anchor's directory"
+      ;;
+    
     *)
       local target="$1"
       local second_arg="$2"
       [[ -z "$target" ]] && target="default"
+
       if [[ -f "$anchor_dir/$target" ]]; then
         local path
         path="$(cat "$anchor_dir/$target")"
+
+        if [[ "$path" =~ ^ssh://([a-zA-Z0-9._%-]+@[a-zA-Z0-9._%-]+):(.+) ]]; then
+          local user_host="${BASH_REMATCH[1]}"
+          local remote_path="${BASH_REMATCH[2]}"
+          echo -e "${BLUE}🔐 Connecting to remote anchor: ${BOLD}$user_host${RESET}${BLUE} at ${GREEN}$remote_path${RESET}"
+          ssh "$user_host" -t "cd '$remote_path' && exec bash"
+          return $?
+        fi
+
         if [[ ! -d "$path" ]]; then
           echo -e "${RED}❌ Anchor '$target' points to non-existent directory: $path${RESET}"
           return 1
         fi
+
         case "$second_arg" in
           ls)
             echo -e "${BLUE}📂 Listing contents of '${BOLD}$target${RESET}${BLUE}' ($path):${RESET}"
