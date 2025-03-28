@@ -1,0 +1,57 @@
+_anc_autocomplete() {
+  local cur prev anchor_dir cmd
+  anchor_dir="${ANCHOR_DIR:-$HOME/.anchors}"
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD - 1]}"
+
+  # Obtener el comando (cp o mv si aplica)
+  if [[ ${COMP_CWORD} -ge 1 ]]; then
+    cmd="${COMP_WORDS[1]}"
+  fi
+
+  # --- anc cp|mv <file> <anchor>/path ---
+  if [[ "$cmd" == "cp" || "$cmd" == "mv" ]]; then
+    if [[ $COMP_CWORD -eq 2 ]]; then
+      # Autocompletar archivos locales
+      COMPREPLY=($(compgen -f -- "$cur"))
+      return
+    elif [[ $COMP_CWORD -eq 3 ]]; then
+      local anchor="${cur%%/*}"
+      local subpath="${cur#*/}"
+
+      if [[ -f "$anchor_dir/$anchor" ]]; then
+        local real_path base_dir
+        real_path=$(cat "$anchor_dir/$anchor")
+
+        if [[ "$cur" == */* ]]; then
+          base_dir="$real_path/${subpath%/*}"
+          [[ -d "$base_dir" ]] || return
+          local partial="${subpath##*/}"
+
+          COMPREPLY=($(cd "$base_dir" && compgen -d -- "$partial"))
+          COMPREPLY=("${COMPREPLY[@]/%//}")
+          COMPREPLY=("${COMPREPLY[@]/#/$anchor/${subpath%/*}/}")
+          COMPREPLY=($(printf "%s\n" "${COMPREPLY[@]}" | sed 's|//|/|g'))
+        else
+          COMPREPLY=($(cd "$real_path" && compgen -d -- "$subpath"))
+          COMPREPLY=("${COMPREPLY[@]/#/$anchor/}")
+        fi
+      else
+        # Autocompletar anchors
+        local anchors=$(cd "$anchor_dir" && ls)
+        COMPREPLY=($(compgen -W "$anchors" -- "$cur"))
+      fi
+      return
+    fi
+  fi
+
+  # --- anc <anchor> ---
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    local anchors=$(cd "$anchor_dir" && ls)
+    COMPREPLY=($(compgen -W "$anchors" -- "$cur"))
+    return
+  fi
+}
+
+complete -o default -F _anc_autocomplete anc
+
