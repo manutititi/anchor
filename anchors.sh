@@ -46,7 +46,6 @@ anc() {
           [[ ${#name} -gt $max_name_len ]] && max_name_len=${#name}
         done
 
-        # Mostrar primero el anchor 'default'
         if [[ -f "$anchor_dir/default" ]]; then
           local path note_file note
           path="$(cat "$anchor_dir/default")"
@@ -57,7 +56,6 @@ anc() {
             "$max_name_len" "default" "$path" "$note"
         fi
 
-        # Mostrar el resto ordenado por fecha (más reciente primero), excluyendo 'default'
         find "$anchor_dir" -type f ! -name "default" ! -name "*.note" -printf "%T@ %p\n" \
           | sort -nr \
           | awk '{print $2}' \
@@ -89,13 +87,24 @@ anc() {
       ;;
 
     prune)
-      read -p "$(echo -e "${RED}⚠️ Are you sure you want to delete ALL anchors? [y/N]: ${RESET}")" confirm
-      if [[ "$confirm" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
-        rm -f "$anchor_dir"/*
-        rm -f "$notes_dir"/*.note
-        echo -e "${YELLOW}🧹 All anchors deleted${RESET}"
+      echo -e "${YELLOW}🧹 Scanning for dead anchors...${RESET}"
+      local count=0
+      for file in "$anchor_dir"/*; do
+        [[ -f "$file" && "$(basename "$file")" != *.note ]] || continue
+        local name path
+        name="$(basename "$file")"
+        path="$(cat "$file")"
+        if [[ ! -d "$path" ]]; then
+          rm "$file"
+          [[ -f "$notes_dir/$name.note" ]] && rm "$notes_dir/$name.note"
+          echo -e "${RED}🗑️ Removed dead anchor '$name' → $path${RESET}"
+          ((count++))
+        fi
+      done
+      if [[ $count -eq 0 ]]; then
+        echo -e "${GREEN}✅ No dead anchors found${RESET}"
       else
-        echo -e "${DIM}Operation cancelled${RESET}"
+        echo -e "${YELLOW}🧹 Pruned $count dead anchor(s)${RESET}"
       fi
       ;;
 
@@ -150,7 +159,7 @@ anc() {
       echo
       echo -e "${CYAN}🛠️  Management:${RESET}"
       echo -e "  anc del <name>            - 🗑️ Delete the specified anchor"
-      echo -e "  anc prune                 - 🧹 Delete all anchors"
+      echo -e "  anc prune                 - 🧹 Delete anchors pointing to missing directories"
       echo -e "  anc rename <old> <new>    - 🔄 Rename an anchor"
       echo -e "  anc note <name> [message] - 📝 Add or update note for an anchor"
       echo
@@ -163,7 +172,6 @@ anc() {
       local target="$1"
       local second_arg="$2"
 
-      # Ir al anchor 'default' si no se pasa ninguno
       [[ -z "$target" ]] && target="default"
 
       if [[ -f "$anchor_dir/$target" ]]; then
