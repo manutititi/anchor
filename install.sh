@@ -7,14 +7,14 @@ SRC_DIR="$(pwd)"
 
 echo "📦 Installing Anchor system to: $ANCHOR_HOME"
 
-# Crear estructura
+# Crear estructura de directorios
 mkdir -p "$ANCHOR_HOME/functions"
 mkdir -p "$ANCHOR_HOME/completions"
 mkdir -p "$ANCHOR_HOME/data"
 
-# Copiar archivos
-cp "$SRC_DIR/anchors.sh" "$ANCHOR_HOME/functions/anchors.sh"
-cp "$SRC_DIR/anc"         "$ANCHOR_HOME/completions/anc"
+# Copiar archivos a sus ubicaciones
+cp "$SRC_DIR/functions/anchors.sh" "$ANCHOR_HOME/functions/anchors.sh"
+cp "$SRC_DIR/autocompletions/anc" "$ANCHOR_HOME/completions/anc"
 
 # Asegurar líneas en .bashrc
 BASHRC="$HOME/.bashrc"
