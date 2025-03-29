@@ -3,7 +3,7 @@
 set -e
 
 ANCHOR_HOME="$HOME/.anchors"
-BASHRC="$HOME/.bashrc"
+SHELL_CONFIGS=("$HOME/.bashrc" "$HOME/.zshrc")
 
 echo "🧹 Uninstalling Anchor system from: $ANCHOR_HOME"
 
@@ -15,20 +15,25 @@ else
   echo "⚠️ $ANCHOR_HOME not found, skipping removal."
 fi
 
-# Eliminar líneas del .bashrc
 remove_line() {
-  local line="$1"
-  if grep -Fxq "$line" "$BASHRC"; then
-    sed -i.bak "\|$line|d" "$BASHRC"
-    echo "✂️ Removed line from .bashrc: $line"
+  local file="$1"
+  local line="$2"
+  if grep -Fxq "$line" "$file"; then
+    sed -i.bak "\|$line|d" "$file"
+    echo "✂️ Removed line from $file: $line"
   fi
 }
 
-remove_line 'export ANCHOR_HOME="$HOME/.anchors"'
-remove_line 'export ANCHOR_DIR="$ANCHOR_HOME/data"'
-remove_line '[[ -f "$ANCHOR_HOME/functions/anchors.sh" ]] && source "$ANCHOR_HOME/functions/anchors.sh"'
-remove_line '[[ -f "$ANCHOR_HOME/completions/anc" ]] && source "$ANCHOR_HOME/completions/anc"'
+for CONFIG in "${SHELL_CONFIGS[@]}"; do
+  if [[ -f "$CONFIG" ]]; then
+    remove_line "$CONFIG" 'export ANCHOR_HOME="$HOME/.anchors"'
+    remove_line "$CONFIG" 'export ANCHOR_DIR="$ANCHOR_HOME/data"'
+    remove_line "$CONFIG" '[[ -f "$ANCHOR_HOME/functions/anchors.sh" ]] && source "$ANCHOR_HOME/functions/anchors.sh"'
+    remove_line "$CONFIG" '[[ -f "$ANCHOR_HOME/completions/anc" ]] && source "$ANCHOR_HOME/completions/anc"'
+    echo "✅ Cleaned $CONFIG"
+  fi
+done
 
 echo "✅ Uninstalled!"
-echo "🔁 Please reload your shell or run: source ~/.bashrc"
+echo "🔁 Please reload your shell or run: source ~/.bashrc or ~/.zshrc"
 

@@ -12,24 +12,30 @@ mkdir -p "$ANCHOR_HOME/functions"
 mkdir -p "$ANCHOR_HOME/completions"
 mkdir -p "$ANCHOR_HOME/data"
 
-# Copiar archivos a sus ubicaciones
+# Copiar archivos
 cp "$SRC_DIR/functions/anchors.sh" "$ANCHOR_HOME/functions/anchors.sh"
 cp "$SRC_DIR/autocompletions/anc" "$ANCHOR_HOME/completions/anc"
 
-# Asegurar líneas en .bashrc
-BASHRC="$HOME/.bashrc"
+# Archivos de configuración a modificar
+SHELL_CONFIGS=("$HOME/.bashrc" "$HOME/.zshrc")
 
 add_if_missing() {
-  local line="$1"
-  grep -Fxq "$line" "$BASHRC" || echo "$line" >> "$BASHRC"
+  local file="$1"
+  local line="$2"
+  grep -Fxq "$line" "$file" || echo "$line" >> "$file"
 }
 
-add_if_missing 'export ANCHOR_HOME="$HOME/.anchors"'
-add_if_missing 'export ANCHOR_DIR="$ANCHOR_HOME/data"'
-add_if_missing '[[ -f "$ANCHOR_HOME/functions/anchors.sh" ]] && source "$ANCHOR_HOME/functions/anchors.sh"'
-add_if_missing '[[ -f "$ANCHOR_HOME/completions/anc" ]] && source "$ANCHOR_HOME/completions/anc"'
+for CONFIG in "${SHELL_CONFIGS[@]}"; do
+  if [[ -f "$CONFIG" ]]; then
+    add_if_missing "$CONFIG" 'export ANCHOR_HOME="$HOME/.anchors"'
+    add_if_missing "$CONFIG" 'export ANCHOR_DIR="$ANCHOR_HOME/data"'
+    add_if_missing "$CONFIG" '[[ -f "$ANCHOR_HOME/functions/anchors.sh" ]] && source "$ANCHOR_HOME/functions/anchors.sh"'
+    add_if_missing "$CONFIG" '[[ -f "$ANCHOR_HOME/completions/anc" ]] && source "$ANCHOR_HOME/completions/anc"'
+    echo "✅ Updated $CONFIG"
+  fi
+done
 
 echo "✅ Installed!"
-echo "🔁 Please reload your shell or run: source ~/.bashrc"
+echo "🔁 Please reload your shell or run: source ~/.bashrc or ~/.zshrc"
 echo "🚀 Try: anc set test && anc ls"
 
