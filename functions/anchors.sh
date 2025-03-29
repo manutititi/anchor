@@ -1,3 +1,9 @@
+# Root
+export ANCHOR_ROOT="${ANCHOR_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
+export ANCHOR_DIR="${ANCHOR_DIR:-"$ANCHOR_ROOT/data"}"
+
+
+
 anc() {
   # Colors
   local BOLD="\033[1m"
@@ -10,28 +16,23 @@ anc() {
   local CYAN="\033[1;36m"
   local GRAY="\033[0;37m"
 
-  local anchor_dir="${ANCHOR_DIR:-"$HOME/.anchors"}"
-  local notes_dir="$anchor_dir/.notes"
-  mkdir -p "$anchor_dir" "$notes_dir"
+  local anchor_dir="$ANCHOR_DIR"
+  mkdir -p "$anchor_dir"
 
   case "$1" in
     
     
         
     set)
-      local name="${2:-default}"
-      local path="$(pwd)"
-      local meta_file="$anchor_dir/$name"
-
-      mkdir -p "$anchor_dir"
-
-      jq -n --arg path "$path" '{ path: $path, type: "local"}' > "$meta_file"
-
-      echo -e "${CYAN}⚓ Anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$path${RESET}"
+      source "${BASH_SOURCE%/*}/set.sh"
+      anc_handle_set "$2"
       ;;
 
 
-   
+
+
+
+
     set-ssh)
       local name="${2:-default}"
       local ssh_url="$3"
@@ -41,12 +42,11 @@ anc() {
         return 1
       fi
 
-      # Parse URL
-      local full="${ssh_url#ssh://}"     # remove ssh://
-      local user_host="${full%%:*}"      # user@host
-      local remote_path="${full#*:}"     # /remote/path
-      local user="${user_host%@*}"       # user
-      local host="${user_host#*@}"       # host
+      local full="${ssh_url#ssh://}"
+      local user_host="${full%%:*}"
+      local remote_path="${full#*:}"
+      local user="${user_host%@*}"
+      local host="${user_host#*@}"
 
       if [[ -z "$user" || -z "$host" || -z "$remote_path" ]]; then
         echo -e "${RED}❌ Invalid SSH path format${RESET}"
@@ -56,7 +56,7 @@ anc() {
       echo -e "${BLUE}🔌 Testing SSH connection to ${BOLD}$user_host${RESET}${BLUE}...${RESET}"
 
       if ssh "$user_host" "test -d '$remote_path'" 2>/dev/null; then
-        local meta_file="$anchor_dir/$name"
+        local meta_file="$ANCHOR_DIR/$name"
         jq -n \
           --arg path "ssh://$user_host:$remote_path" \
           --arg user "$user" \
@@ -69,7 +69,6 @@ anc() {
         return 1
       fi
       ;;
-
 
 
     note)
@@ -178,36 +177,9 @@ anc() {
             
 
     show)
-      local anchor="$2"
-
-      if [[ -z "$anchor" ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc show <anchor>"
-        return 1
-      fi
-
-      local meta_file="$anchor_dir/$anchor"
-
-      if [[ ! -f "$meta_file" ]]; then
-        echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
-        return 1
-      fi
-
-      echo -e "${CYAN}🔍 Anchor: ${BOLD}$anchor${RESET}"
-
-      local path note
-      path=$(jq -r '.path // empty' "$meta_file")
-      note=$(jq -r '.note // empty' "$meta_file")
-
-      echo -e "  ${BLUE}📁 Path:${RESET} $path"
-
-      if [[ -n "$note" ]]; then
-        echo -e "  ${YELLOW}📝 Note:${RESET} $note"
-      fi
-
-      echo -e "  ${GREEN}🧩 Metadata:${RESET}"
-      jq 'to_entries | map(select(.key != "path")) | .[] | "    \(.key) = \(.value)"' "$meta_file" -r
-      ;;
-
+     source "${BASH_SOURCE%/*}/show.sh"
+     anc_show_anchor "$2"
+     ;;
     
     
         
@@ -433,7 +405,7 @@ anc() {
 
       # Ajustar a estructura real
       local base_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-      local anchor_dir="$base_dir/data"
+      local anchor_dir="$ANCHOR_DIR"
       local meta_file="$anchor_dir/$anchor_name"
 
       if [[ ! -f "$meta_file" ]]; then
@@ -591,6 +563,92 @@ anc() {
 
 
 
+
+
+
+    sail)
+      local anchor="$2"
+
+      if [[ -z "$anchor" ]]; then
+        echo -e "${YELLOW}Usage:${RESET} anc sail <anchor>${RESET}"
+        return 1
+      fi
+
+      local base_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+      local anchor_dir="$ANCHOR_DIR"
+      local meta_file="$anchor_dir/$anchor"
+
+      if [[ ! -f "$meta_file" ]]; then
+        echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
+        return 1
+      fi
+
+      local old_path
+      old_path=$(jq -r '.path // empty' "$meta_file")
+
+      if [[ -z "$old_path" ]]; then
+        echo -e "${RED}❌ Anchor '$anchor' has no path${RESET}"
+        return 1
+      fi
+
+      if [[ "$old_path" =~ ^ssh:// ]]; then
+        echo -e "${YELLOW}⚠️ Remote anchors are not supported by 'sail'${RESET}"
+        return 1
+      fi
+
+      if [[ -d "$old_path" ]]; then
+        echo -e "${GREEN}✅ Anchor '$anchor' path is valid: $old_path${RESET}"
+        return 0
+      fi
+
+      local folder_name
+      folder_name="$(basename "$old_path")"
+
+      echo -e "${YELLOW}⚠️ Anchor '$anchor' not found at ${DIM}$old_path${RESET}"
+      echo -e "${BLUE}🔍 Searching for '$folder_name' under \$HOME...${RESET}"
+
+      mapfile -t matches < <(find "$HOME" -type d -name "$folder_name" 2>/dev/null)
+
+      if [[ ${#matches[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No alternative location found for '$folder_name'${RESET}"
+        return 1
+      fi
+
+      echo -e "${CYAN}Select a new location:${RESET}"
+      for i in "${!matches[@]}"; do
+        printf "  [%d] %s\n" $((i + 1)) "${matches[$i]}"
+      done
+      printf "  [%d] Cancel\n" $(( ${#matches[@]} + 1 ))
+
+      echo -ne "${YELLOW}❓ Your choice [1-${#matches[@]}]: ${RESET}"
+      read -r choice
+
+      if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}❌ Invalid input${RESET}"
+        return 1
+      fi
+
+      if (( choice < 1 || choice > ${#matches[@]} )); then
+        echo -e "${BLUE}❌ Cancelled${RESET}"
+        return 0
+      fi
+
+      local new_path="${matches[$((choice - 1))]}"
+
+      tmp="$(mktemp)"
+      jq --arg new "$new_path" '.path = $new' "$meta_file" > "$tmp" && mv "$tmp" "$meta_file"
+
+      echo -e "${GREEN}✅ Anchor '$anchor' updated to new path: $new_path${RESET}"
+      ;;
+
+   
+
+
+
+
+
+
+
    
 
 
@@ -634,64 +692,16 @@ anc() {
     
         
         
-
+    *)
+     local target="${1:-default}"
+     local second_arg="$2"
+     source "${BASH_SOURCE%/*}/enter_anchor.sh"
+     anc_enter_anchor "$target" "$second_arg"
+     ;;
 
 
    
-    *)
-      local target="${1:-default}"
-      local second_arg="$2"
-
-      local meta_file="$anchor_dir/$target"
-
-      if [[ -f "$meta_file" ]]; then
-        local path
-        path=$(jq -r '.path // empty' "$meta_file")
-
-        if [[ -z "$path" ]]; then
-          echo -e "${RED}❌ No 'path' found in anchor '${BOLD}$target${RESET}${RED}'${RESET}"
-          return 1
-        fi
-
-        if [[ "$path" =~ ^ssh://([a-zA-Z0-9._%-]+@[a-zA-Z0-9._%-]+):(.+) ]]; then
-          local user_host="${BASH_REMATCH[1]}"
-          local remote_path="${BASH_REMATCH[2]}"
-          echo -e "${BLUE}🔐 Connecting to remote anchor: ${BOLD}$user_host${RESET}${BLUE} at ${GREEN}$remote_path${RESET}"
-          ssh "$user_host" -t "cd '$remote_path' && exec bash"
-          return $?
-        fi
-
-        if [[ ! -d "$path" ]]; then
-          echo -e "${RED}❌ Anchor '$target' points to non-existent directory: $path${RESET}"
-          return 1
-        fi
-
-        case "$second_arg" in
-          ls)
-            echo -e "${BLUE}📂 Listing contents of '${BOLD}$target${RESET}${BLUE}' ($path):${RESET}"
-            ls -la "$path"
-            ;;
-          tree)
-            echo -e "${BLUE}🌲 Tree view of '${BOLD}$target${RESET}${BLUE}' ($path):${RESET}"
-            if command -v tree >/dev/null 2>&1; then
-              tree "$path"
-            else
-              echo -e "${YELLOW}⚠️ 'tree' command not found. Please install it first.${RESET}"
-            fi
-            ;;
-          *)
-            cd "$path" || {
-              echo -e "${RED}❌ Failed to access anchor '$target'${RESET}"
-              return 1
-            }
-            ;;
-        esac
-      else
-        echo -e "${RED}⚠️ Anchor '$target' not found${RESET}"
-        return 1
-      fi
-      ;;
-
+   
 
 
 
@@ -707,7 +717,6 @@ anc() {
 
 filter_anchors() {
   local filter_string="$1"
-  local anchor_dir="${ANCHOR_DIR:-"$HOME/.anchors"}"
   declare -A filters
 
   IFS=',' read -ra pairs <<< "$filter_string"
@@ -717,7 +726,7 @@ filter_anchors() {
     filters["$key"]="$value"
   done
 
-  for file in "$anchor_dir"/*; do
+  for file in "$ANCHOR_DIR"/*; do
     [[ -f "$file" ]] || continue
     local match=true
     for key in "${!filters[@]}"; do
