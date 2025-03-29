@@ -15,13 +15,23 @@ anc() {
   mkdir -p "$anchor_dir" "$notes_dir"
 
   case "$1" in
+    
+    
+        
     set)
       local name="${2:-default}"
-      echo "$(pwd)" > "$anchor_dir/$name"
-      echo -e "${CYAN}⚓ Anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$(pwd)${RESET}"
+      local path="$(pwd)"
+      local meta_file="$anchor_dir/$name"
+
+      mkdir -p "$anchor_dir"
+
+      jq -n --arg path "$path" '{ path: $path, type: "local"}' > "$meta_file"
+
+      echo -e "${CYAN}⚓ Anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$path${RESET}"
       ;;
 
-    
+
+   
     set-ssh)
       local name="${2:-default}"
       local ssh_url="$3"
@@ -31,12 +41,14 @@ anc() {
         return 1
       fi
 
-      # Parse URL: ssh://user@host:/path → user@host and path
+      # Parse URL
       local full="${ssh_url#ssh://}"     # remove ssh://
-      local user_host="${full%%:*}"      # before first colon
-      local remote_path="${full#*:}"     # after first colon
+      local user_host="${full%%:*}"      # user@host
+      local remote_path="${full#*:}"     # /remote/path
+      local user="${user_host%@*}"       # user
+      local host="${user_host#*@}"       # host
 
-      if [[ -z "$user_host" || -z "$remote_path" ]]; then
+      if [[ -z "$user" || -z "$host" || -z "$remote_path" ]]; then
         echo -e "${RED}❌ Invalid SSH path format${RESET}"
         return 1
       fi
@@ -44,7 +56,13 @@ anc() {
       echo -e "${BLUE}🔌 Testing SSH connection to ${BOLD}$user_host${RESET}${BLUE}...${RESET}"
 
       if ssh "$user_host" "test -d '$remote_path'" 2>/dev/null; then
-        echo "$ssh_url" > "$anchor_dir/$name"
+        local meta_file="$anchor_dir/$name"
+        jq -n \
+          --arg path "ssh://$user_host:$remote_path" \
+          --arg user "$user" \
+          --arg host "$host" \
+          '{ path: $path, type: "remote", user: $user, host: $host }' > "$meta_file"
+
         echo -e "${CYAN}🌐 Remote anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$ssh_url${RESET}"
       else
         echo -e "${RED}❌ Could not connect or directory does not exist: $remote_path${RESET}"
@@ -54,29 +72,29 @@ anc() {
 
 
 
-
-
-
-
-
-
-
-
-
     note)
       if [[ -z "$2" ]]; then
         echo -e "${YELLOW}Usage:${RESET} anc note <anchor> [message]"
         return 1
       fi
+
       local anchor="$2"
       local msg="${*:3}"
-      if [[ ! -f "$anchor_dir/$anchor" ]]; then
+      local meta_file="$anchor_dir/$anchor"
+
+      if [[ ! -f "$meta_file" ]]; then
         echo -e "${RED}⚠️ Anchor '$anchor' does not exist${RESET}"
         return 1
       fi
-      echo "$msg" > "$notes_dir/$anchor.note"
+
+      tmp="$(mktemp)"
+      jq --arg note "$msg" '.note = $note' "$meta_file" > "$tmp" && mv "$tmp" "$meta_file"
+
       echo -e "${BLUE}📝 Note set for anchor '${BOLD}$anchor${RESET}${BLUE}'${RESET}"
       ;;
+
+
+
 
     meta)
       local anchor="$2"
@@ -87,96 +105,131 @@ anc() {
         return 1
       fi
 
-      if [[ ! -f "$anchor_dir/$anchor" ]]; then
+      local meta_file="$anchor_dir/$anchor"
+
+      if [[ ! -f "$meta_file" ]]; then
         echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
         return 1
       fi
 
-      local meta_file="$anchor_dir/$anchor.meta"
-      touch "$meta_file"
-
+      local jq_expr=""
       for pair in "$@"; do
         local key="${pair%%=*}"
         local value="${pair#*=}"
-        if grep -q "^$key=" "$meta_file"; then
-          sed -i "s/^$key=.*/$key=$value/" "$meta_file"
-        else
-          echo "$key=$value" >> "$meta_file"
-        fi
+        jq_expr+=".\"$key\" = \"${value}\" | "
       done
+
+      # Eliminar último ' | ' si existe
+      jq_expr="${jq_expr% | }"
+
+      local tmp
+      tmp="$(mktemp)"
+      jq "$jq_expr" "$meta_file" > "$tmp" && mv "$tmp" "$meta_file"
 
       echo -e "${GREEN}✅ Metadata updated for anchor '${BOLD}$anchor${RESET}${GREEN}'${RESET}"
       ;;
 
+
+
+
+    ls)
+      shift
+      local filter_string=""
+      local filter_mode=false
+
+      if [[ ("$1" == "--filter" || "$1" == "-f") && "$2" == *=* ]]; then
+        filter_string="$2"
+        filter_mode=true
+        shift 2
+      fi
+
+      echo -e "${BLUE}📌 Available anchors:${RESET}"
+      local found=0
+
+      local files=()
+      if [[ "$filter_mode" == true ]]; then
+        mapfile -t files < <(filter_anchors "$filter_string")
+      else
+        for file in "$anchor_dir"/*; do
+          [[ -f "$file" ]] && files+=("$(basename "$file")")
+        done
+      fi
+
+      for name in "${files[@]}"; do
+        local meta_file="$anchor_dir/$name"
+        local path
+        path=$(jq -r '.path // empty' "$meta_file")
+
+        if [[ -n "$path" ]]; then
+          printf "  ${CYAN}⚓ %-20s${RESET} → ${GREEN}%s${RESET}\n" "$name" "$path"
+          found=1
+        fi
+      done
+
+      if [[ "$found" -eq 0 ]]; then
+        echo -e "  ${YELLOW}(⚠️ no matching anchors found)${RESET}"
+      fi
+      ;;
+        
+
     show)
       local anchor="$2"
+
       if [[ -z "$anchor" ]]; then
         echo -e "${YELLOW}Usage:${RESET} anc show <anchor>"
         return 1
       fi
-      if [[ ! -f "$anchor_dir/$anchor" ]]; then
+
+      local meta_file="$anchor_dir/$anchor"
+
+      if [[ ! -f "$meta_file" ]]; then
         echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
         return 1
       fi
-      local path note_file meta_file
-      path="$(cat "$anchor_dir/$anchor")"
-      note_file="$notes_dir/$anchor.note"
-      meta_file="$anchor_dir/$anchor.meta"
 
       echo -e "${CYAN}🔍 Anchor: ${BOLD}$anchor${RESET}"
+
+      local path note
+      path=$(jq -r '.path // empty' "$meta_file")
+      note=$(jq -r '.note // empty' "$meta_file")
+
       echo -e "  ${BLUE}📁 Path:${RESET} $path"
 
-      if [[ -f "$note_file" ]]; then
-        echo -e "  ${YELLOW}📝 Note:${RESET} $(< "$note_file")"
+      if [[ -n "$note" ]]; then
+        echo -e "  ${YELLOW}📝 Note:${RESET} $note"
       fi
 
-      if [[ -f "$meta_file" ]]; then
-        echo -e "  ${GREEN}🧩 Metadata:${RESET}"
-        while IFS='=' read -r key value; do
-          echo -e "    ${BOLD}$key${RESET} = $value"
-        done < "$meta_file"
-      fi
+      echo -e "  ${GREEN}🧩 Metadata:${RESET}"
+      jq 'to_entries | map(select(.key != "path")) | .[] | "    \(.key) = \(.value)"' "$meta_file" -r
       ;;
 
     
     
+        
+        
     run)
       shift
-      if [[ "$1" == --filter ]]; then
-        local filter="$2"
-        local key="${filter%%=*}"
-        local value="${filter#*=}"
-        shift 2
-        local cmd="$*"
+      local filter_string=""
+      local mode="single"
+      local cmd=""
+      local files=()
 
-        if [[ -z "$key" || -z "$value" || -z "$cmd" ]]; then
-          echo -e "${YELLOW}Usage:${RESET} anc run --filter key=value <command>"
+      if [[ ("$1" == "--filter" || "$1" == "-f") && "$2" == *=* ]]; then
+        filter_string="$2"
+        shift 2
+        cmd="$*"
+
+        if [[ -z "$cmd" ]]; then
+          echo -e "${YELLOW}Usage:${RESET} anc run -f key=value[,key=value...] <command>"
           return 1
         fi
 
-        for file in "$anchor_dir"/*; do
-          [[ -f "$file" && "$(basename "$file")" != *.note && "$(basename "$file")" != *.meta ]] || continue
-          local name="$(basename "$file")"
-          local meta_file="$anchor_dir/$name.meta"
-          if [[ -f "$meta_file" ]] && grep -q "^$key=$value" "$meta_file"; then
-            local path
-            path="$(cat "$file")"
-            echo -e "${CYAN}⚓ Running in '$name' → $path:${RESET}"
-
-            if [[ "$path" == ssh://* ]]; then
-              local path_no_proto="${path#ssh://}"
-              local user_host="${path_no_proto%%:*}"
-              local remote_path="${path_no_proto#*:}"
-              ssh "$user_host" -t "cd '$remote_path' && $cmd"
-            else
-              (cd "$path" && eval "$cmd")
-            fi
-          fi
-        done
+        mapfile -t files < <(filter_anchors "$filter_string")
+        mode="filtered"
       else
         local anchor="$1"
         shift
-        local cmd="$*"
+        cmd="$*"
 
         if [[ -z "$anchor" || -z "$cmd" ]]; then
           echo -e "${YELLOW}Usage:${RESET} anc run <anchor> <command>"
@@ -188,135 +241,157 @@ anc() {
           return 1
         fi
 
+        files+=("$anchor")
+      fi
+
+      for name in "${files[@]}"; do
+        local meta_file="$anchor_dir/$name"
         local path
-        path="$(cat "$anchor_dir/$anchor")"
-        echo -e "${CYAN}⚓ Running in '$anchor' → $path:${RESET}"
+        path=$(jq -r '.path // empty' "$meta_file")
+
+        if [[ -z "$path" ]]; then
+          echo -e "${YELLOW}⚠️ Anchor '$name' has no path, skipping${RESET}"
+          continue
+        fi
+
+        echo -e "${CYAN}⚓ Running in '$name' → $path:${RESET}"
 
         if [[ "$path" == ssh://* ]]; then
-          local path_no_proto="${path#ssh://}"
-          local user_host="${path_no_proto%%:*}"
-          local remote_path="${path_no_proto#*:}"
+          local user_host="${path#ssh://}"
+          user_host="${user_host%%:*}"
+          remote_path="${path#*:}"
           ssh "$user_host" -t "cd '$remote_path' && $cmd"
         else
           (cd "$path" && eval "$cmd")
         fi
-      fi
+      done
       ;;
     
     
-    
-    ls)
-      shift
-      local filter_key filter_value
-      if [[ "$1" == --filter && "$2" == *=* ]]; then
-        filter_key="${2%%=*}"
-        filter_value="${2#*=}"
-        shift 2
-      fi
-
-      echo -e "${BLUE}📌 Available anchors:${RESET}"
-
-      local found=0
-      local max_name_len=0
-
-      # Cálculo de longitud máxima para formato
-      for file in "$anchor_dir"/*; do
-        local name
-        name="$(basename "$file")"
-        [[ "$name" == *.note || "$name" == *.meta ]] && continue
-
-        # Filtro (solo para cálculo de largo)
-        if [[ -n "$filter_key" ]]; then
-          local meta_file="$anchor_dir/$name.meta"
-          [[ -f "$meta_file" ]] || continue
-          grep -q "^$filter_key=$filter_value" "$meta_file" || continue
-        fi
-
-        [[ ${#name} -gt $max_name_len ]] && max_name_len=${#name}
-      done
-
-      # Mostrar anchors
-      for file in "$anchor_dir"/*; do
-        local name path note_file note
-        name="$(basename "$file")"
-        [[ "$name" == *.note || "$name" == *.meta ]] && continue
-
-        # Filtro activo
-        if [[ -n "$filter_key" ]]; then
-          local meta_file="$anchor_dir/$name.meta"
-          [[ -f "$meta_file" ]] || continue
-          grep -q "^$filter_key=$filter_value" "$meta_file" || continue
-        fi
-
-        path="$(cat "$file")"
-        note_file="$notes_dir/$name.note"
-        note=""
-        [[ -f "$note_file" ]] && note="# $(< "$note_file")"
-        printf "  ${CYAN}⚓ %-*s${RESET} → ${GREEN}%-40s${RESET} ${DIM}%s${RESET}\n" \
-          "$max_name_len" "$name" "$path" "$note"
-        found=1
-      done
-
-      if [[ "$found" -eq 0 ]]; then
-        echo -e "  ${YELLOW}(⚠️ no matching anchors found)${RESET}"
-      fi
-
-      return 0
-      ;;
-
-
-
 
 
     del)
-      if [[ -z "$2" ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc del <name>"
-      elif [[ -f "$anchor_dir/$2" ]]; then
-        rm "$anchor_dir/$2"
-        [[ -f "$notes_dir/$2.note" ]] && rm "$notes_dir/$2.note"
-        [[ -f "$anchor_dir/$2.meta" ]] && rm "$anchor_dir/$2.meta"
-        echo -e "${RED}🗑️ Anchor '${BOLD}$2${RESET}${RED}' deleted${RESET}"
-      else
-        echo -e "${RED}⚠️ Anchor '$2' does not exist${RESET}"
-      fi
-      ;;
+      shift
+      local files=()
 
-    prune)
-      echo -e "${YELLOW}🧹 Scanning for dead anchors...${RESET}"
-      local count=0
-      for file in "$anchor_dir"/*; do
-        [[ -f "$file" && "$(basename "$file")" != *.note && "$(basename "$file")" != *.meta ]] || continue
-        local name path
-        name="$(basename "$file")"
-        path="$(cat "$file")"
-        if [[ ! -d "$path" ]]; then
-          rm "$file"
-          [[ -f "$notes_dir/$name.note" ]] && rm "$notes_dir/$name.note"
-          [[ -f "$anchor_dir/$name.meta" ]] && rm "$anchor_dir/$name.meta"
-          echo -e "${RED}🗑️ Removed dead anchor '$name' → $path${RESET}"
-          ((count++))
+      if [[ ("$1" == "--filter" || "$1" == "-f") && "$2" == *=* ]]; then
+        local filter_string="$2"
+        shift 2
+        mapfile -t files < <(filter_anchors "$filter_string")
+      elif [[ -n "$1" ]]; then
+        files+=("$1")
+      else
+        echo -e "${YELLOW}Usage:${RESET} anc del <name>  ${DIM}or${RESET}  anc del -f key=value[,key=value...]"
+        return 1
+      fi
+
+      if [[ ${#files[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}⚠️ No matching anchors found${RESET}"
+        return 1
+      fi
+
+      echo -e "${RED}🚨 The following anchors will be deleted:${RESET}"
+      for name in "${files[@]}"; do
+        echo -e "  ${CYAN}⚓ $name${RESET}"
+      done
+
+      echo -ne "${YELLOW}❓ Are you sure? (y/N): ${RESET}"
+      read -r confirm
+
+      if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo -e "${BLUE}❌ Operation cancelled${RESET}"
+        return 0
+      fi
+
+      for name in "${files[@]}"; do
+        local meta_file="$anchor_dir/$name"
+        if [[ -f "$meta_file" ]]; then
+          rm "$meta_file"
+          echo -e "${RED}🗑️ Anchor '${BOLD}$name${RESET}${RED}' deleted${RESET}"
+        else
+          echo -e "${YELLOW}⚠️ Anchor '$name' not found${RESET}"
         fi
       done
-      if [[ $count -eq 0 ]]; then
-        echo -e "${GREEN}✅ No dead anchors found${RESET}"
-      else
-        echo -e "${YELLOW}🧹 Pruned $count dead anchor(s)${RESET}"
-      fi
       ;;
+    
+
+
+    prune)
+      echo -e "${YELLOW}🧹 Scanning for dead local anchors (type=local)...${RESET}"
+      local dead=()
+
+      for file in "$anchor_dir"/*; do
+        [[ -f "$file" ]] || continue
+        local name="$(basename "$file")"
+
+        local type
+        type=$(jq -r '.type // "local"' "$file")
+
+        [[ "$type" != "local" ]] && continue
+
+        local path
+        path=$(jq -r '.path // empty' "$file")
+
+        [[ -d "$path" ]] || dead+=("$name")
+      done
+
+      if [[ ${#dead[@]} -eq 0 ]]; then
+        echo -e "${GREEN}✅ No dead local anchors found${RESET}"
+        return 0
+      fi
+
+      echo -e "${RED}⚠️ The following local anchors point to non-existent directories:${RESET}"
+      for name in "${dead[@]}"; do
+        local path
+        path=$(jq -r '.path' "$anchor_dir/$name")
+        echo -e "  ${CYAN}⚓ $name${RESET} → ${DIM}$path${RESET}"
+      done
+
+      echo -ne "${YELLOW}❓ Remove these anchors? (y/N): ${RESET}"
+      read -r confirm
+
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+      echo -e "${BLUE}❌ Operation cancelled${RESET}"
+      return 0
+    fi
+
+    for name in "${dead[@]}"; do
+      rm "$anchor_dir/$name"
+      echo -e "${RED}🗑️ Anchor '${BOLD}$name${RESET}${RED}' deleted${RESET}"
+    done
+    ;;
+
+
+
 
     rename)
-      if [[ -z "$2" || -z "$3" ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc rename <old> <new>"
-      elif [[ ! -f "$anchor_dir/$2" ]]; then
-        echo -e "${RED}⚠️ Anchor '$2' does not exist${RESET}"
-      else
-        mv "$anchor_dir/$2" "$anchor_dir/$3"
-        [[ -f "$notes_dir/$2.note" ]] && mv "$notes_dir/$2.note" "$notes_dir/$3.note"
-        [[ -f "$anchor_dir/$2.meta" ]] && mv "$anchor_dir/$2.meta" "$anchor_dir/$3.meta"
-        echo -e "${CYAN}🔄 Anchor '${BOLD}$2${RESET}${CYAN}' renamed to '${BOLD}$3${RESET}${CYAN}'${RESET}"
-      fi
-      ;;
+      local old="$2"
+      local new="$3"
 
+      if [[ -z "$old" || -z "$new" ]]; then
+        echo -e "${YELLOW}Usage:${RESET} anc rename <old> <new>"
+        return 1
+      fi
+
+      local old_file="$anchor_dir/$old"
+      local new_file="$anchor_dir/$new"
+
+      if [[ ! -f "$old_file" ]]; then
+        echo -e "${RED}⚠️ Anchor '$old' does not exist${RESET}"
+        return 1
+      fi
+
+      if [[ -f "$new_file" ]]; then
+        echo -e "${RED}⚠️ Anchor '$new' already exists${RESET}"
+        return 1
+      fi
+
+      mv "$old_file" "$new_file"
+      echo -e "${CYAN}🔄 Anchor '${BOLD}$old${RESET}${CYAN}' renamed to '${BOLD}$new${RESET}${CYAN}'${RESET}"
+      ;;
+    
+   
+    
     
     cp|mv)
       local cmd="$1"
@@ -392,14 +467,24 @@ anc() {
       echo -e "  anc mv <file> <anchor>    - 🚚 Move local file to anchor's directory"
       ;;
     
-    *)
-      local target="$1"
-      local second_arg="$2"
-      [[ -z "$target" ]] && target="default"
 
-      if [[ -f "$anchor_dir/$target" ]]; then
+
+
+   
+    *)
+      local target="${1:-default}"
+      local second_arg="$2"
+
+      local meta_file="$anchor_dir/$target"
+
+      if [[ -f "$meta_file" ]]; then
         local path
-        path="$(cat "$anchor_dir/$target")"
+        path=$(jq -r '.path // empty' "$meta_file")
+
+        if [[ -z "$path" ]]; then
+          echo -e "${RED}❌ No 'path' found in anchor '${BOLD}$target${RESET}${RED}'${RESET}"
+          return 1
+        fi
 
         if [[ "$path" =~ ^ssh://([a-zA-Z0-9._%-]+@[a-zA-Z0-9._%-]+):(.+) ]]; then
           local user_host="${BASH_REMATCH[1]}"
@@ -436,8 +521,43 @@ anc() {
         esac
       else
         echo -e "${RED}⚠️ Anchor '$target' not found${RESET}"
+        return 1
       fi
       ;;
-  esac
+
+
+
+
+
+
+
+
+
+
+     esac
 }
 
+
+filter_anchors() {
+  local filter_string="$1"
+  local anchor_dir="${ANCHOR_DIR:-"$HOME/.anchors"}"
+  declare -A filters
+
+  IFS=',' read -ra pairs <<< "$filter_string"
+  for pair in "${pairs[@]}"; do
+    local key="${pair%%=*}"
+    local value="${pair#*=}"
+    filters["$key"]="$value"
+  done
+
+  for file in "$anchor_dir"/*; do
+    [[ -f "$file" ]] || continue
+    local match=true
+    for key in "${!filters[@]}"; do
+      local val
+      val=$(jq -r --arg key "$key" '.[$key] // empty' "$file")
+      [[ "$val" != "${filters[$key]}" ]] && match=false && break
+    done
+    [[ "$match" == true ]] && basename "$file"
+  done
+}
