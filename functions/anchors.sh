@@ -31,45 +31,13 @@ anc() {
 
 
 
-
-
     set-ssh)
-      local name="${2:-default}"
-      local ssh_url="$3"
-
-      if [[ -z "$ssh_url" || "$ssh_url" != ssh://* ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc set-ssh <name> <ssh://user@host:/remote/path>${RESET}"
-        return 1
-      fi
-
-      local full="${ssh_url#ssh://}"
-      local user_host="${full%%:*}"
-      local remote_path="${full#*:}"
-      local user="${user_host%@*}"
-      local host="${user_host#*@}"
-
-      if [[ -z "$user" || -z "$host" || -z "$remote_path" ]]; then
-        echo -e "${RED}❌ Invalid SSH path format${RESET}"
-        return 1
-      fi
-
-      echo -e "${BLUE}🔌 Testing SSH connection to ${BOLD}$user_host${RESET}${BLUE}...${RESET}"
-
-      if ssh "$user_host" "test -d '$remote_path'" 2>/dev/null; then
-        local meta_file="$ANCHOR_DIR/$name"
-        jq -n \
-          --arg path "ssh://$user_host:$remote_path" \
-          --arg user "$user" \
-          --arg host "$host" \
-          '{ path: $path, type: "remote", user: $user, host: $host }' > "$meta_file"
-
-        echo -e "${CYAN}🌐 Remote anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$ssh_url${RESET}"
-      else
-        echo -e "${RED}❌ Could not connect or directory does not exist: $remote_path${RESET}"
-        return 1
-      fi
+      source "${BASH_SOURCE%/*}/set_ssh.sh"
+      anc_handle_set_ssh "$2" "$3"
       ;;
 
+
+    
 
     note)
       if [[ -z "$2" ]]; then
@@ -326,6 +294,28 @@ anc() {
       ;;
 
      
+
+
+
+
+    bck)
+      source "${BASH_SOURCE%/*}/backup.sh"
+      anc_handle_backup "${@:2}"
+      ;;
+
+
+
+    push)
+      source "${BASH_SOURCE%/*}/push.sh"
+      anc_handle_push "$2" "$3"
+      ;;
+
+
+    pull)
+      source "${BASH_SOURCE%/*}/pull.sh"
+      anc_handle_pull "$2" "$3"
+      ;;
+
     help)
       source "${BASH_SOURCE%/*}/help.sh"
       anc_handle_help

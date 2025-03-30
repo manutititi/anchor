@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  anc-server:
+    build: .
+    ports:
+      - "17017:17017"
+    volumes:
+      - ./anchors:/app/anchors
+    restart: unless-stopped
+

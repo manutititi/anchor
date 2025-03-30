@@ -1,0 +1,28 @@
+{
+  "path": "/home/manu/own/anchor",
+  "type": "local",
+  "git": {
+    "root": "/home/manu/own/anchor",
+    "branch": "main",
+    "branches": [
+      "devel",
+      "main"
+    ],
+    "tags": [],
+    "remotes": [
+      {
+        "name": "origin",
+        "url": "git@github.com:manutititi/anchor.git"
+      }
+    ],
+    "is_dirty": false,
+    "commit": {
+      "hash": "f57cee2a7963085d2e2ca72ccc26f86100cfa192",
+      "author": "manutititi",
+      "date": "Sun Mar 30 16:18:50 2025 +0200",
+      "message": "yq parser for docker, better code"
+    },
+    "set_branch": "main"
+  },
+  "docker": {}
+}

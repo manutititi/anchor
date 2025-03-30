@@ -1,0 +1,9 @@
+{
+  "path": "ssh://manu@192.168.0.100:/home/manu/vault",
+  "type": "remote",
+  "remote": {
+    "user": "manu",
+    "host": "192.168.0.100",
+    "raw_path": "/home/manu/vault"
+  }
+}
