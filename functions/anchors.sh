@@ -186,162 +186,23 @@ anc() {
         
         
     run)
-      shift
-      local filter_string=""
-      local mode="single"
-      local cmd=""
-      local files=()
-
-      if [[ ("$1" == "--filter" || "$1" == "-f") && "$2" == *=* ]]; then
-        filter_string="$2"
-        shift 2
-        cmd="$*"
-
-        if [[ -z "$cmd" ]]; then
-          echo -e "${YELLOW}Usage:${RESET} anc run -f key=value[,key=value...] <command>"
-          return 1
-        fi
-
-        mapfile -t files < <(filter_anchors "$filter_string")
-        mode="filtered"
-      else
-        local anchor="$1"
-        shift
-        cmd="$*"
-
-        if [[ -z "$anchor" || -z "$cmd" ]]; then
-          echo -e "${YELLOW}Usage:${RESET} anc run <anchor> <command>"
-          return 1
-        fi
-
-        if [[ ! -f "$anchor_dir/$anchor" ]]; then
-          echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
-          return 1
-        fi
-
-        files+=("$anchor")
-      fi
-
-      for name in "${files[@]}"; do
-        local meta_file="$anchor_dir/$name"
-        local path
-        path=$(jq -r '.path // empty' "$meta_file")
-
-        if [[ -z "$path" ]]; then
-          echo -e "${YELLOW}⚠️ Anchor '$name' has no path, skipping${RESET}"
-          continue
-        fi
-
-        echo -e "${CYAN}⚓ Running in '$name' → $path:${RESET}"
-
-        if [[ "$path" == ssh://* ]]; then
-          if [[ "$path" =~ ^ssh://([^:]+):(.+)$ ]]; then
-            local user_host="${BASH_REMATCH[1]}"
-            local remote_path="${BASH_REMATCH[2]}"
-            ssh "$user_host" -t "cd '$remote_path' && $cmd"
-          else
-            echo -e "${RED}❌ Invalid SSH path format in anchor '$name': $path${RESET}"
-            continue
-          fi
-        else
-          (cd "$path" && eval "$cmd")
-        fi
-      done
-      ;;
-    
+      source "${BASH_SOURCE%/*}/run.sh"
+      anc_handle_run "$@"
+      ;;   
 
 
+        
     del)
-      shift
-      local files=()
-
-      if [[ ("$1" == "--filter" || "$1" == "-f") && "$2" == *=* ]]; then
-        local filter_string="$2"
-        shift 2
-        mapfile -t files < <(filter_anchors "$filter_string")
-      elif [[ -n "$1" ]]; then
-        files+=("$1")
-      else
-        echo -e "${YELLOW}Usage:${RESET} anc del <name>  ${DIM}or${RESET}  anc del -f key=value[,key=value...]"
-        return 1
-      fi
-
-      if [[ ${#files[@]} -eq 0 ]]; then
-        echo -e "${YELLOW}⚠️ No matching anchors found${RESET}"
-        return 1
-      fi
-
-      echo -e "${RED}🚨 The following anchors will be deleted:${RESET}"
-      for name in "${files[@]}"; do
-        echo -e "  ${CYAN}⚓ $name${RESET}"
-      done
-
-      echo -ne "${YELLOW}❓ Are you sure? (y/N): ${RESET}"
-      read -r confirm
-
-      if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo -e "${BLUE}❌ Operation cancelled${RESET}"
-        return 0
-      fi
-
-      for name in "${files[@]}"; do
-        local meta_file="$anchor_dir/$name"
-        if [[ -f "$meta_file" ]]; then
-          rm "$meta_file"
-          echo -e "${RED}🗑️ Anchor '${BOLD}$name${RESET}${RED}' deleted${RESET}"
-        else
-          echo -e "${YELLOW}⚠️ Anchor '$name' not found${RESET}"
-        fi
-      done
+      source "${BASH_SOURCE%/*}/delete.sh"
+      anc_handle_del "$@"
       ;;
+
+
     
-
-
     prune)
-      echo -e "${YELLOW}🧹 Scanning for dead local anchors (type=local)...${RESET}"
-      local dead=()
-
-      for file in "$anchor_dir"/*; do
-        [[ -f "$file" ]] || continue
-        local name="$(basename "$file")"
-
-        local type
-        type=$(jq -r '.type // "local"' "$file")
-
-        [[ "$type" != "local" ]] && continue
-
-        local path
-        path=$(jq -r '.path // empty' "$file")
-
-        [[ -d "$path" ]] || dead+=("$name")
-      done
-
-      if [[ ${#dead[@]} -eq 0 ]]; then
-        echo -e "${GREEN}✅ No dead local anchors found${RESET}"
-        return 0
-      fi
-
-      echo -e "${RED}⚠️ The following local anchors point to non-existent directories:${RESET}"
-      for name in "${dead[@]}"; do
-        local path
-        path=$(jq -r '.path' "$anchor_dir/$name")
-        echo -e "  ${CYAN}⚓ $name${RESET} → ${DIM}$path${RESET}"
-      done
-
-      echo -ne "${YELLOW}❓ Remove these anchors? (y/N): ${RESET}"
-      read -r confirm
-
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-      echo -e "${BLUE}❌ Operation cancelled${RESET}"
-      return 0
-    fi
-
-    for name in "${dead[@]}"; do
-      rm "$anchor_dir/$name"
-      echo -e "${RED}🗑️ Anchor '${BOLD}$name${RESET}${RED}' deleted${RESET}"
-    done
-    ;;
-
+      source "${BASH_SOURCE%/*}/prune.sh"
+      anc_handle_prune
+      ;;
 
 
 
@@ -371,199 +232,22 @@ anc() {
       echo -e "${CYAN}🔄 Anchor '${BOLD}$old${RESET}${CYAN}' renamed to '${BOLD}$new${RESET}${CYAN}'${RESET}"
       ;;
     
-   
-    
+     
 
-    
-    
+
+  
+
     
     
     cp|mv)
-      local cmd="$1"
-      shift
-
-      # Al menos dos argumentos: uno o más archivos, y un destino
-      if [[ "$#" -lt 2 ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc $cmd <file...> <anchor[/subpath]>${RESET}"
-        return 1
-      fi
-
-      local anchor_path="${@: -1}"       # último argumento
-      local sources=("${@:1:$#-1}")       # todos menos el último
-
-      for file in "${sources[@]}"; do
-        if [[ ! -f "$file" && ! -d "$file" ]]; then
-          echo -e "${RED}❌ File or directory '$file' does not exist${RESET}"
-          return 1
-        fi
-      done
-
-      local anchor_name subpath
-      anchor_name="${anchor_path%%/*}"
-      subpath="${anchor_path#*/}"
-      [[ "$anchor_path" == "$anchor_name" ]] && subpath=""
-
-      # Ajustar a estructura real
-      local base_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-      local anchor_dir="$ANCHOR_DIR"
-      local meta_file="$anchor_dir/$anchor_name"
-
-      if [[ ! -f "$meta_file" ]]; then
-        echo -e "${RED}⚠️ Anchor '$anchor_name' not found${RESET}"
-        return 1
-      fi
-
-      local path type
-      path=$(jq -r '.path // empty' "$meta_file")
-      type=$(jq -r '.type // "local"' "$meta_file")
-
-      if [[ -z "$path" ]]; then
-        echo -e "${RED}⚠️ Anchor '$anchor_name' has no path${RESET}"
-        return 1
-      fi
-
-      if [[ "$type" == "remote" ]]; then
-        if [[ "$cmd" == "mv" ]]; then
-          echo -e "${RED}❌ 'mv' to remote anchors is not allowed. Use 'cp' instead.${RESET}"
-          return 1
-        fi
-
-        local proto_removed="${path#ssh://}"
-        local user_host="${proto_removed%%:*}"
-        local remote_path="${proto_removed#*:}"
-        [[ -n "$subpath" ]] && remote_path="$remote_path/$subpath"
-
-        echo -e "${BLUE}📡 Sending to remote anchor '$anchor_name': $user_host:$remote_path${RESET}"
-        ssh "$user_host" "mkdir -p '$remote_path'" || {
-          echo -e "${RED}❌ Failed to create remote directory '$remote_path' on $user_host${RESET}"
-          return 1
-        }
-
-        scp -r "${sources[@]}" "$user_host:$remote_path"
-      else
-        local dest="$path"
-        [[ -n "$subpath" ]] && dest="$dest/$subpath"
-        mkdir -p "$dest"
-
-        for file in "${sources[@]}"; do
-          local final_path="$dest/$(basename "$file")"
-          if [[ "$cmd" == "mv" ]]; then
-            mv "$file" "$final_path" && echo -e "${GREEN}✅ Moved '$file' to '$final_path'${RESET}"
-          else
-            cp -r "$file" "$final_path" && echo -e "${GREEN}✅ Copied '$file' to '$final_path'${RESET}"
-          fi
-        done
-      fi
-    ;;
-
-
-
- 
+     source "${BASH_SOURCE%/*}/copy_move.sh"
+     anc_handle_copy_or_move "$@"
+     ;;
    
-   
-    
-    
     cpt)
-      local from="$2"
-      local to="$3"
-
-      if [[ -z "$from" || -z "$to" ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc cpt <from-anchor/relpath> <to-anchor/relpath>${RESET}"
-        return 1
-      fi
-
-      local src_anchor="${from%%/*}"
-      local src_rel="${from#*/}"
-      [[ "$src_anchor" == "$from" ]] && src_rel=""
-
-      local dst_anchor="${to%%/*}"
-      local dst_rel="${to#*/}"
-      [[ "$dst_anchor" == "$to" ]] && dst_rel=""
-
-      local src_meta="$anchor_dir/$src_anchor"
-      local dst_meta="$anchor_dir/$dst_anchor"
-
-      if [[ ! -f "$src_meta" ]]; then
-        echo -e "${RED}⚠️ Source anchor '$src_anchor' not found${RESET}"
-        return 1
-      fi
-
-      if [[ ! -f "$dst_meta" && ! -d "$to" ]]; then
-        echo -e "${RED}⚠️ Destination '$to' is neither an anchor nor an existing directory${RESET}"
-        return 1
-      fi
-
-      local src_base dst_base src_type dst_type
-      src_base=$(jq -r '.path // empty' "$src_meta")
-      src_type=$(jq -r '.type // "local"' "$src_meta")
-
-      if [[ -f "$dst_meta" ]]; then
-        dst_base=$(jq -r '.path // empty' "$dst_meta")
-        dst_type=$(jq -r '.type // "local"' "$dst_meta")
-      else
-        dst_base="$to"
-        dst_type="local"
-      fi
-
-      if [[ -z "$src_base" || -z "$dst_base" ]]; then
-        echo -e "${RED}❌ Could not resolve source or destination path${RESET}"
-        return 1
-      fi
-
-      local dst_path="$dst_base/$dst_rel"
-      mkdir -p "$dst_path"
-
-      if [[ "$src_type" == "remote" ]]; then
-        # Remote source → local destination using rsync
-        local trimmed="${src_base#ssh://}"
-        local user_host="${trimmed%%:*}"
-        local remote_base="${trimmed#*:}"
-        local remote_path
-
-        if [[ -z "$src_rel" ]]; then
-          remote_path="$remote_base/"
-        else
-          remote_path="$remote_base/$src_rel"
-        fi
-
-        echo -e "${BLUE}🔍 Listing files in remote '$src_anchor': $user_host:$remote_path${RESET}"
-        ssh "$user_host" "ls -1 $remote_path" || {
-          echo -e "${RED}❌ Could not list remote files: $user_host:$remote_path${RESET}"
-          return 1
-        }
-
-        echo -e "${BLUE}📥 Copying from remote '$src_anchor': $user_host:$remote_path → $dst_path${RESET}"
-        rsync -avz --progress -e ssh "$user_host:$remote_path" "$dst_path/"
-      else
-        # Local source → local destination
-        local src_pattern="$src_base/$src_rel"
-
-        echo -e "${BLUE}📄 Copying from local '$src_anchor': $src_pattern → $dst_path${RESET}"
-
-        shopt -s nullglob
-        local matches=($src_pattern)
-        shopt -u nullglob
-
-        if [[ ${#matches[@]} -eq 0 ]]; then
-          echo -e "${RED}❌ No matching files for '$src_pattern'${RESET}"
-          return 1
-        fi
-
-        echo -e "${BLUE}🔍 Files to copy:${RESET}"
-        for file in "${matches[@]}"; do
-          echo "  - $file"
-        done
-
-        cp -r "${matches[@]}" "$dst_path"
-        echo -e "${GREEN}✅ Copied ${#matches[@]} file(s)${RESET}"
-      fi
+      source "${BASH_SOURCE%/*}/copy_to_anchor.sh"
+      anc_handle_cpt "$2" "$3"
       ;;
-
-
-
-
-
-
 
 
     sail)
@@ -641,55 +325,11 @@ anc() {
       echo -e "${GREEN}✅ Anchor '$anchor' updated to new path: $new_path${RESET}"
       ;;
 
-   
-
-
-
-
-
-
-
-   
-
-
+     
     help)
-      echo -e "${BOLD}📖 anc - Simple anchor system for directories and files${RESET}\n"
-
-      echo -e "${CYAN}🎯 Navigation:${RESET}"
-      echo -e "  anc                        - ⚓ Go to the 'default' anchor"
-      echo -e "  anc <name>                - ⚓ Jump to a specific anchor"
-      echo -e "  anc <name> ls             - 📂 List contents of anchor directory"
-      echo -e "  anc <name> tree           - 🌲 Tree view of anchor directory"
-      echo -e "  anc show <name>           - 🔍 Show path, note, and metadata"
-      echo -e "  anc ls [--filter k=v]     - 📌 List all anchors (optionally filtered by metadata)"
-      echo
-
-      echo -e "${CYAN}🛠️  Anchor Management:${RESET}"
-      echo -e "  anc set [name]            - 📍 Set anchor for current directory"
-      echo -e "  anc set-ssh <name> <url>  - 🌐 Set anchor to remote SSH path"
-      echo -e "  anc del <name>            - 🗑️ Delete an anchor"
-      echo -e "  anc rename <old> <new>    - 🔄 Rename an anchor"
-      echo -e "  anc prune                 - 🧹 Remove anchors pointing to non-existent dirs"
-      echo -e "  anc note <name> [msg]     - 📝 Add or update note for an anchor"
-      echo -e "  anc meta <name> k=v ...   - 🧩 Set metadata (key=value) for an anchor"
-      echo
-
-      echo -e "${CYAN}📂 File Transfer:${RESET}"
-      echo -e "  anc cp <file...> <anchor[/subpath]> - 📥 Copy one or more files/dirs to anchor"
-      echo -e "  anc mv <file...> <anchor[/subpath]> - 🚚 Move one or more files/dirs to anchor"
-      echo -e "  anc cpt <from-anchor[/path]> <to-anchor[/path]> - 🔁 Copy between anchors"
-      echo
-
-      echo -e "${CYAN}▶️  Execute Commands:${RESET}"
-      echo -e "  anc run <name> <cmd>      - 🚀 Run command inside anchor directory"
-      echo -e "  anc run --filter k=v <cmd> - 🔎 Run command in anchors matching metadata"
-      ;;
-
-
-
-
-
-    
+      source "${BASH_SOURCE%/*}/help.sh"
+      anc_handle_help
+      ;;    
         
         
     *)
@@ -698,16 +338,6 @@ anc() {
      source "${BASH_SOURCE%/*}/enter_anchor.sh"
      anc_enter_anchor "$target" "$second_arg"
      ;;
-
-
-   
-   
-
-
-
-
-
-
 
 
 
