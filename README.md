@@ -120,7 +120,7 @@ anc pull -f env=dev
 anc server name [url]
 anc server ls
 anc server ls -f project=demo
-anc server ls test
+anc server ls|show test
 ```
 
 - `anc push <name>` — Upload anchor metadata to server.
