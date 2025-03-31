@@ -293,10 +293,6 @@ anc() {
       echo -e "${GREEN}✅ Anchor '$anchor' updated to new path: $new_path${RESET}"
       ;;
 
-     
-
-
-
 
     bck)
       source "${BASH_SOURCE%/*}/backup.sh"
@@ -321,6 +317,20 @@ anc() {
       anc_handle_help
       ;;    
         
+
+
+    man)
+      source "${BASH_SOURCE%/*}/man.sh"
+      anc_handle_man
+      ;; 
+
+    server)
+      source "${BASH_SOURCE%/*}/server.sh"
+      anc_server "${@:2}"
+      ;;
+
+
+
         
     *)
      local target="${1:-default}"

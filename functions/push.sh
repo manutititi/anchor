@@ -2,7 +2,7 @@
 
 anc_handle_push() {
     local anchor="$1"
-    local server="${2:-http://localhost:17017}"
+    local server="${2:-$(anc server name 2>/dev/null || echo http://localhost:17017)}"
     local anchor_file="$ANCHOR_DIR/$anchor"
 
     if [[ -z "$anchor" ]]; then

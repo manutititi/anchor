@@ -35,7 +35,20 @@ anc_handle_help() {
   echo
 
   echo -e "${CYAN}▶️  Execute Commands:${RESET}"
-  echo -e "  anc run <name> <cmd>      - 🚀 Run command inside anchor directory"
-  echo -e "  anc run --filter k=v <cmd> - 🔎 Run command in anchors matching metadata"
+  echo -e "  anc run <name> <cmd>          - 🚀 Run command inside anchor directory"
+  echo -e "  anc run --filter k=v <cmd>    - 🔎 Run command in anchors matching metadata"
+  echo
+
+  echo -e "${CYAN}🌐 Remote Sync (Server):${RESET}"
+  echo -e "  anc push <name>               - ⬆️  Upload anchor to server"
+  echo -e "  anc pull <name>               - ⬇️  Download anchor from server"
+  echo -e "  anc pull --all                - ⬇️  Download all anchors"
+  echo -e "  anc pull -f k=v               - ⬇️  Download anchors matching metadata"
+  echo
+
+  echo -e "  anc server name [url]         - 🌍 Set or show server URL"
+  echo -e "  anc server ls                 - 📋 List anchors from remote server"
+  echo -e "  anc server ls -f k=v          - 📋 Filter remote anchors by metadata"
+  echo -e "  anc server ls <name>          - 🔍 Show raw metadata of remote anchor"
 }
 

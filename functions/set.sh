@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-
-source "${BASH_SOURCE%/*}/generate_metadata.sh"
-
 anc_handle_set() {
   local BOLD="\033[1m"
   local RESET="\033[0m"
@@ -11,21 +7,28 @@ anc_handle_set() {
   local RED="\033[0;31m"
   local YELLOW="\033[0;33m"
 
-  local name="${1:-default}"
-  local path="$(pwd)"
-  local meta_file="$ANCHOR_DIR/$name"
+  local input="$1"
 
+  local path
+  local name
+
+  if [[ -z "$input" || "$input" == /* || "$input" == "."* || -d "$input" ]]; then
+    path="$(realpath "${input:-.}")"
+    name="$(basename "$path")"
+  else
+    name="$input"
+    path="$(pwd)"
+  fi
+
+  local meta_file="$ANCHOR_DIR/$name"
   local meta_json
   anc_generate_metadata "$path" meta_json
 
-  # Establecer rama fija .git.set_branch = .git.branch si está presente
   meta_json=$(jq '.git.set_branch = .git.branch' <<< "$meta_json")
-
   echo "$meta_json" > "$meta_file"
 
   echo -e "${CYAN}⚓ Anchor '${BOLD}$name${RESET}${CYAN}' set to: ${GREEN}$path${RESET}"
 
-  # Mostrar detalles si tiene Git
   if jq -e '.git.root // empty' <<< "$meta_json" >/dev/null; then
     local git_branch
     git_branch=$(jq -r '.git.branch' <<< "$meta_json")
@@ -43,7 +46,6 @@ anc_handle_set() {
     [[ "$is_dirty" == "true" ]] && echo -e "  ${RED}⚠️ Working directory has uncommitted changes${RESET}"
   fi
 
-  # Mostrar detalles si tiene Docker
   if jq -e '.docker.active // false' <<< "$meta_json" >/dev/null; then
     local services
     services=$(jq -r '.docker.services[]?.name' <<< "$meta_json")
