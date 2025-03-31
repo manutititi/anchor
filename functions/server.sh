@@ -86,11 +86,19 @@ anc_server_ls() {
 
 
 
+
 anc_server() {
     case "$1" in
-        name) shift; anc_server_name "$@" ;;
-        ls)   shift; anc_server_ls "$@" ;;
-        *)    echo "Unknown server command: $1" ;;
+        name)
+            shift
+            anc_server_name "$@"
+            ;;
+        ls | show)
+            shift
+            anc_server_ls "$@"
+            ;;
+        *)
+            echo "Unknown server command: $1"
+            ;;
     esac
 }
-
