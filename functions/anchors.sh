@@ -38,6 +38,27 @@ anc() {
 
 
     
+    set-url)
+      source "${BASH_SOURCE%/*}/set_url.sh"
+      anc_handle_set_url "$2" "$3"
+      ;;
+
+
+
+    add-route)
+      source "${BASH_SOURCE%/*}/add_route.sh"
+      anc_handle_add_route "$2" "$3" "$4" "$5"
+      ;;
+
+
+
+
+    edit)
+      shift
+      source "${BASH_SOURCE%/*}/edit.sh"
+      anc_handle_edit "$@"
+      ;;
+
 
     note)
       if [[ -z "$2" ]]; then
@@ -319,6 +340,13 @@ anc() {
         
 
 
+    export)
+      shift
+      source "${BASH_SOURCE%/*}/export.sh"
+      anc_handle_export "$@"
+      ;;
+
+
     man)
       source "${BASH_SOURCE%/*}/man.sh"
       anc_handle_man
@@ -329,6 +357,20 @@ anc() {
       anc_server "${@:2}"
       ;;
 
+
+
+    
+    api)
+      shift
+      source "${BASH_SOURCE%/*}/api.sh"
+      anc_handle_api "$@"
+      ;;
+
+    api-test)
+      shift
+      source "${BASH_SOURCE%/*}/test_url.sh"
+      anc_handle_api_test "$@"
+      ;;
 
 
         

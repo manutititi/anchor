@@ -87,6 +87,40 @@ anc_server_ls() {
 
 
 
+anc_server_status() {
+  local server
+  server="$(anc server name 2>/dev/null || echo http://localhost:17017)"
+
+  echo "🌐 Server: $server"
+
+  # Check reachability
+  if curl -s --connect-timeout 2 "$server/anchors" > /dev/null; then
+    echo "✅ Server is reachable"
+
+    # Get number of anchors
+    local count
+    count=$(curl -s "$server/anchors" | jq 'length')
+    echo "📁 Remote anchors: $count"
+  else
+    echo "❌ Cannot reach server"
+  fi
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 anc_server() {
     case "$1" in
         name)
@@ -97,6 +131,12 @@ anc_server() {
             shift
             anc_server_ls "$@"
             ;;
+
+        status)
+            anc_server_status
+            ;;
+
+
         *)
             echo "Unknown server command: $1"
             ;;

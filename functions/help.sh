@@ -50,5 +50,22 @@ anc_handle_help() {
   echo -e "  anc server ls                 - 📋 List anchors from remote server"
   echo -e "  anc server ls -f k=v          - 📋 Filter remote anchors by metadata"
   echo -e "  anc server ls <name>          - 🔍 Show raw metadata of remote anchor"
+
+
+ 
+  echo -e "${CYAN}🌐 Web / URL Anchors / API:${RESET}"
+  echo -e "  anc set-url <name> <url>           - 🌍 Create a web anchor with base URL"
+  echo -e "  anc add-route <name> <method> <path> [status] [params]  - ➕ Add API route definition"
+  echo -e "  anc api <name> <path> [method]     - 🌐 Call an API endpoint"
+  echo -e "  anc api ls <name>                  - 📋 List all API routes for an anchor"
+  echo -e "  anc api-test <name>                - 🧪 Run all defined API tests"
+
+
+
+  echo -e "Export"
+  echo -e "anc export <name> <format>"
+
+
+
 }
 
