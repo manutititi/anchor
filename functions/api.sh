@@ -56,10 +56,12 @@ anc_handle_api() {
   # Auth if required and token available
   if [[ "$auth_enabled" == "true" && -n "$token_env" && -n "${!token_env}" ]]; then
     curl_cmd+=( -H "Authorization: Bearer ${!token_env}" )
+  elif [[ "$auth_enabled" == "true" && -n "$token_env" && -z "${!token_env}" ]]; then
+    echo "⚠️ Auth enabled but env var '$token_env' not set. Skipping token header."
   fi
 
   # If there are extra args, treat them as data or params
-  if [[ "$method" == "POST" || "$method" == "PUT" || "$method" == "PATCH" ]]; then
+  if [[ "$method" =~ ^(POST|PUT|PATCH)$ ]]; then
     if [[ -n "$1" ]]; then
       curl_cmd+=( -d "$1" )
     fi
@@ -68,3 +70,4 @@ anc_handle_api() {
   echo "🌐 $method $full_url"
   "${curl_cmd[@]}"
 }
+

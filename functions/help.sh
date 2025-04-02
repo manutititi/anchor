@@ -67,5 +67,10 @@ anc_handle_help() {
 
 
 
+  echo -e "ENVS"
+  echo -e "anc env init <name>      - create an env.json replicable"
+  echo -e "anc env apply <name>     - Apply the env in the current dir" 
+
+
 }
 
