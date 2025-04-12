@@ -1,9 +1,10 @@
 import os
 import json
-from datetime import datetime
 import subprocess
+from datetime import datetime, timezone
 from collections import OrderedDict
 
+# === Colores ===
 def color(text, code): return f"\033[{code}m{text}\033[0m"
 def bold(text): return color(text, "1")
 def green(text): return color(text, "0;32")
@@ -12,8 +13,16 @@ def cyan(text): return color(text, "1;36")
 def yellow(text): return color(text, "0;33")
 def red(text): return color(text, "0;31")
 
-def realpath(p):
-    return os.path.abspath(os.path.expanduser(p or "."))
+# === Utilidades ===
+def realpath(p): return os.path.abspath(os.path.expanduser(p or "."))
+
+def now_iso(): return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def get_git_branches(path):
+    try:
+        return subprocess.check_output(["git", "-C", path, "branch", "--format=%(refname:short)"]).decode().splitlines()
+    except Exception:
+        return []
 
 def detect_git_metadata(path):
     try:
@@ -53,13 +62,6 @@ def detect_git_metadata(path):
     except Exception:
         return {}
 
-def get_git_branches(path):
-    try:
-        branches = subprocess.check_output(["git", "-C", path, "branch", "--format=%(refname:short)"]).decode().splitlines()
-        return branches
-    except Exception:
-        return []
-
 def detect_docker_metadata(path):
     compose_file = os.path.join(path, "docker-compose.yml")
     if not os.path.isfile(compose_file):
@@ -82,7 +84,7 @@ def generate_local_metadata(path):
     meta = OrderedDict()
     meta["type"] = "local"
     meta["path"] = path
-    meta["created_at"] = datetime.utcnow().isoformat() + "Z"
+    meta["created_at"] = now_iso()
 
     git = detect_git_metadata(path)
     if git:
@@ -95,44 +97,44 @@ def generate_local_metadata(path):
     return meta
 
 def generate_url_metadata(name, base_url):
-    meta = OrderedDict()
-    meta["type"] = "url"
-    meta["name"] = name
-    meta["meta"] = {
-        "project": "",
-        "env": "",
-        "note": "",
-        "created_by": os.environ.get("USER", "unknown"),
-        "created_at": datetime.utcnow().isoformat() + "Z"
-    }
-    meta["endpoint"] = {
-        "base_url": base_url,
-        "version": "v1",
-        "auth": {
-            "enabled": False,
-            "type": "bearer",
-            "token_env": "API_TOKEN"
+    return OrderedDict({
+        "type": "url",
+        "name": name,
+        "meta": {
+            "project": "",
+            "env": "",
+            "note": "",
+            "created_by": os.environ.get("USER", "unknown"),
+            "created_at": now_iso()
         },
-        "headers": {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
+        "endpoint": {
+            "base_url": base_url,
+            "version": "v1",
+            "auth": {
+                "enabled": False,
+                "type": "bearer",
+                "token_env": "API_TOKEN"
+            },
+            "headers": {
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            },
+            "routes": []
         },
-        "routes": []
-    }
-    meta["interfaces"] = {
-        "docs": "",
-        "dashboard": ""
-    }
-    meta["automation"] = {
-        "test_enabled": True,
-        "scan_enabled": False,
-        "tools": []
-    }
-    meta["scripts"] = {
-        "preload": [],
-        "postload": []
-    }
-    return meta
+        "interfaces": {
+            "docs": "",
+            "dashboard": ""
+        },
+        "automation": {
+            "test_enabled": True,
+            "scan_enabled": False,
+            "tools": []
+        },
+        "scripts": {
+            "preload": [],
+            "postload": []
+        }
+    })
 
 def generate_env_metadata(name, env_vars=None):
     return OrderedDict({
@@ -151,7 +153,7 @@ def generate_env_metadata(name, env_vars=None):
         },
         "meta": {
             "created_by": os.environ.get("USER", "unknown"),
-            "created_at": datetime.utcnow().isoformat() + "Z",
+            "created_at": now_iso(),
             "description": "",
             "tags": [],
             "shared": False,
@@ -173,9 +175,16 @@ def parse_env_file(env_path):
                 env_vars[key.strip()] = val.strip().strip('"').strip("'")
     return env_vars
 
+
+# === MAIN ===
 def run(args):
+    # --- Server mode ---
+    if args.server is not None:
+        return handle_server(args)
+
     os.makedirs(args.anchor_dir, exist_ok=True)
 
+    # --- ENV mode ---
     if args.env:
         name = args.name
         if not name:
@@ -213,6 +222,7 @@ def run(args):
         print(blue(f"📎 Linked current directory to env '{bold(name)}' via .anc-env"))
         return
 
+    # --- URL mode ---
     if args.url:
         name = args.name
         base_url = args.base_url
@@ -240,7 +250,7 @@ def run(args):
         print(blue(f"🌐 Base URL: {base_url}"))
         return
 
-    # default: set local
+    # --- Default (local path) ---
     input_val = args.name
     if not input_val or input_val.startswith("/") or input_val.startswith(".") or os.path.isdir(input_val):
         abs_path = realpath(input_val)
@@ -287,3 +297,26 @@ def run(args):
         print(f"  {cyan('Services:')}")
         for s in meta["docker"].get("services", []):
             print(f"    - {s.get('name')}")
+
+
+# === SERVER ===
+
+def handle_server(args):
+    server_url = args.server or "http://localhost:17017"
+
+    server_dir = os.path.expanduser(os.path.join(os.environ.get("ANCHOR_HOME", "~/.anchors"), "server"))
+    server_file = os.path.join(server_dir, "info.json")
+    os.makedirs(server_dir, exist_ok=True)
+
+    if os.path.isfile(server_file):
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        backup_file = os.path.join(server_dir, f".oldserver_{timestamp}.json")
+        with open(server_file, "rb") as fsrc, open(backup_file, "wb") as fdst:
+            fdst.write(fsrc.read())
+
+    with open(server_file, "w") as f:
+        json.dump({ "url": server_url }, f, indent=2)
+
+    os.chmod(server_file, 0o644)  # ← Ajuste de permisos aquí
+
+    print(green(f"✅ Server URL set to: {cyan(server_url)}"))

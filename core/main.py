@@ -29,6 +29,7 @@ def main():
     set_parser.add_argument("--env", action="store_true", help="Create an environment anchor")
     set_parser.add_argument("base_url", nargs="?", help="Base URL or .env file depending on context")
     set_parser.add_argument("--rel", action="store_true", help="Store path relative to home (~)")
+    set_parser.add_argument("--server", nargs="?", const="http://localhost:17017", help="Set server URL (default: localhost:17017)")
     set_parser.set_defaults(func=set_cmd.run)
 
     # Comando: del
