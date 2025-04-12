@@ -54,9 +54,10 @@ anc_enter_anchor() {
     return $?
   fi
 
-  # 🧭 Leer path (expand ~ si viene de --rel)
-  local path
-  path=$(jq -r '.path // empty' "$meta_file")
+  # 🧭 Leer path (expande ~ para uso, pero guarda el original)
+  local raw_path
+  raw_path=$(jq -r '.path // empty' "$meta_file")
+  local path="$raw_path"
   if [[ "$path" == "~/"* ]]; then
     path="${HOME}${path:1}"
   fi
@@ -66,9 +67,10 @@ anc_enter_anchor() {
     return 1
   fi
 
-  # 🔄 Actualizar metadata si cambió
+  # 🔄 Generar metadata y restaurar path original antes de comparar
   local current_json
   anc_generate_metadata "$path" current_json
+  current_json=$(jq --arg p "$raw_path" '.path = $p' <<< "$current_json")
 
   if jq -e '.git.set_branch' "$meta_file" >/dev/null; then
     local fixed_branch
