@@ -1,3 +1,4 @@
+
 #!/usr/bin/env bash
 set -e
 
@@ -11,7 +12,6 @@ RESET="\033[0m"
 
 echo -e "📦 Installing Anchor system to: ${GREEN}$ANCHOR_HOME${RESET}"
 
-# === DEPENDENCIAS === #
 
 # yq
 if ! command -v yq >/dev/null 2>&1; then
@@ -53,7 +53,6 @@ mkdir -p "$ANCHOR_HOME/scripts"
 mkdir -p "$ANCHOR_HOME/server"
 mkdir -p "$ANCHOR_HOME/core"
 
-# === COPIAR ARCHIVOS === #
 
 cp -r "$SRC_DIR/functions/"*.sh "$ANCHOR_HOME/functions/"
 cp -r "$SRC_DIR/completions/"* "$ANCHOR_HOME/completions/"
@@ -61,7 +60,11 @@ cp -r "$SRC_DIR/scripts/"* "$ANCHOR_HOME/scripts/" 2>/dev/null || true
 cp -r "$SRC_DIR/server/"* "$ANCHOR_HOME/server/" 2>/dev/null || true
 cp -r "$SRC_DIR/core" "$ANCHOR_HOME/"
 
-# === BASHRC / ZSHRC === #
+if compgen -G "$SRC_DIR/data/*.json" > /dev/null; then
+  cp "$SRC_DIR/data/"*.json "$ANCHOR_HOME/data/"
+  echo -e "${GREEN}✅ Copied anchor examples to ~/.anchors/data/${RESET}"
+fi
+
 
 SHELL_CONFIGS=("$HOME/.bashrc" "$HOME/.zshrc")
 
@@ -82,9 +85,8 @@ for CONFIG in "${SHELL_CONFIGS[@]}"; do
   fi
 done
 
-# === FINAL === #
 
 echo -e "\n🎉 ${GREEN}Installation complete!${RESET}"
 echo "🔁 Reload your shell or run: source ~/.bashrc"
-echo "🚀 Try: anc set test && anc ls"
-
+echo "📦 Example anchor installed: ${CYAN}anc.json${RESET}"
+echo -e "🚀 Try: ${GREEN}anc ls${RESET}  then ${CYAN}anc anc${RESET} to jump into it."
