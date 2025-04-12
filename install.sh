@@ -9,6 +9,9 @@ GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
 RED="\033[0;31m"
 RESET="\033[0m"
+CYAN="\033[1;36m"
+
+
 
 echo -e "📦 Installing Anchor system to: ${GREEN}$ANCHOR_HOME${RESET}"
 
@@ -43,7 +46,6 @@ else
   echo -e "${GREEN}✅ 'jq' already installed.${RESET}"
 fi
 
-# === ESTRUCTURA DE DESTINO === #
 
 mkdir -p "$ANCHOR_HOME"
 mkdir -p "$ANCHOR_HOME/functions"
@@ -88,5 +90,5 @@ done
 
 echo -e "\n🎉 ${GREEN}Installation complete!${RESET}"
 echo "🔁 Reload your shell or run: source ~/.bashrc"
-echo "📦 Example anchor installed: ${CYAN}anc.json${RESET}"
+echo -e "📦 Example anchor installed: ${CYAN}anc.json${RESET}"
 echo -e "🚀 Try: ${GREEN}anc ls${RESET}  then ${CYAN}anc anc${RESET} to jump into it."

@@ -65,7 +65,6 @@ anc show test
 ```bash
 anc set
 anc set ./folder
-anc set-ssh test ssh://user@host:/path
 anc del test
 anc rename old new
 anc prune
