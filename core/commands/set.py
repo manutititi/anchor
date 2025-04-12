@@ -240,13 +240,19 @@ def run(args):
         print(blue(f"🌐 Base URL: {base_url}"))
         return
 
+    # default: set local
     input_val = args.name
     if not input_val or input_val.startswith("/") or input_val.startswith(".") or os.path.isdir(input_val):
-        path = realpath(input_val)
-        name = os.path.basename(path)
+        abs_path = realpath(input_val)
+        path = abs_path
+        name = os.path.basename(abs_path)
     else:
         name = input_val
-        path = os.getcwd()
+        abs_path = os.getcwd()
+        path = abs_path
+
+    if args.rel and abs_path.startswith(os.path.expanduser("~")):
+        path = path.replace(os.path.expanduser("~"), "~", 1)
 
     if name.endswith(".json"):
         name = name[:-5]

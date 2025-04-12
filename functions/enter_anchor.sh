@@ -24,6 +24,7 @@ anc_enter_anchor() {
   local type
   type=$(jq -r '.type // "local"' "$meta_file")
 
+  # 🌐 Abrir URL si es tipo url
   if [[ "$type" == "url" ]]; then
     local base_url
     base_url=$(jq -r '.endpoint.base_url // empty' "$meta_file")
@@ -36,8 +37,29 @@ anc_enter_anchor() {
     return
   fi
 
+  # 📡 Conexión SSH moderna (type = ssh)
+  if [[ "$type" == "ssh" ]]; then
+    local user host remote_path
+    user=$(jq -r '.ssh.user // empty' "$meta_file")
+    host=$(jq -r '.ssh.host // empty' "$meta_file")
+    remote_path=$(jq -r '.ssh.path // empty' "$meta_file")
+
+    if [[ -z "$user" || -z "$host" || -z "$remote_path" ]]; then
+      echo -e "${RED}❌ Invalid SSH anchor: missing user, host or path${RESET}"
+      return 1
+    fi
+
+    echo -e "${BLUE}🔐 Connecting to SSH anchor '${BOLD}$user@$host${RESET}${BLUE}' → ${GREEN}$remote_path${RESET}"
+    ssh "$user@$host" -t "cd '$remote_path' && exec bash"
+    return $?
+  fi
+
+  # 🧭 Leer path (expand ~ si viene de --rel)
   local path
   path=$(jq -r '.path // empty' "$meta_file")
+  if [[ "$path" == "~/"* ]]; then
+    path="${HOME}${path:1}"
+  fi
 
   if [[ -z "$path" ]]; then
     echo -e "${RED}❌ No 'path' found in anchor '${BOLD}$name${RESET}${RED}'${RESET}"
@@ -58,7 +80,7 @@ anc_enter_anchor() {
     echo "$current_json" > "$meta_file"
   fi
 
-  # 📡 Conexión SSH
+  # 📡 Soporte heredado para path tipo ssh://user@host:/ruta
   if [[ "$path" =~ ^ssh://([a-zA-Z0-9._%-]+@[a-zA-Z0-9._%-]+):(.+) ]]; then
     local user_host="${BASH_REMATCH[1]}"
     local remote_path="${BASH_REMATCH[2]}"
@@ -111,3 +133,4 @@ anc_enter_anchor() {
       ;;
   esac
 }
+
