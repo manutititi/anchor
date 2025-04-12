@@ -1,28 +1,23 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pathlib import Path
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 import shutil
 import json
 import re
-from fastapi.responses import HTMLResponse
-
-
 
 app = FastAPI()
 ANCHORS_DIR = Path("anchors")
-ANCHORS_DIR.mkdir(exist_ok=True)
+ANCHORS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def match_nested(data, key, expected_value):
-    """Soporta claves anidadas y listas de objetos."""
     parts = key.split(".")
     current = data
 
     for i, part in enumerate(parts):
         if isinstance(current, list):
-            # Si es lista, ver si algún objeto tiene el resto del path
             rest = ".".join(parts[i:])
             return any(match_nested(item, rest, expected_value) for item in current)
         try:
@@ -34,7 +29,6 @@ def match_nested(data, key, expected_value):
 
 
 def evaluate_filter_expression(data, expression: str) -> bool:
-    """Evalúa expresiones como 'key=val AND other=val2 OR third=val3'"""
     or_clauses = [clause.strip() for clause in re.split(r'\bOR\b', expression, flags=re.IGNORECASE)]
 
     for or_clause in or_clauses:
@@ -80,20 +74,16 @@ def get_anchor(name: str):
     return FileResponse(file_path)
 
 
-@app.post("/anchors/{name}")
-def upload_anchor(name: str, file: UploadFile = File(...)):
-    if not file.filename.endswith(".json"):
-        raise HTTPException(status_code=400, detail="Only .json files allowed")
-
+@app.post("/anchors/_upload")
+def upload_anchor(file: UploadFile = File(...)):
     try:
         data = json.load(file.file)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
-    # Añadir campo "last_updated" automáticamente
-    data["last_updated"] = datetime.utcnow().isoformat()
+    data["last_updated"] = datetime.now(timezone.utc).isoformat()
 
-    dst = ANCHORS_DIR / f"{name}.json"
+    dst = ANCHORS_DIR / file.filename
     try:
         with open(dst, "w") as f:
             json.dump(data, f, indent=2)
@@ -124,13 +114,9 @@ def get_anchor_raw(name: str):
         raise HTTPException(status_code=404, detail="Anchor not found")
     try:
         with open(file_path) as f:
-            data = json.load(f)
-        return data
+            return json.load(f)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Invalid JSON or read error: {e}")
-
-
-
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -148,7 +134,7 @@ def dashboard():
             env = data.get("env", "")
             project = data.get("project", "")
             updated = data.get("last_updated", "")
-            path_or_url = data.get("path") or data.get("url", "")
+            path_or_url = data.get("path") or data.get("endpoint", {}).get("base_url", "")
 
             row = f"""
                 <tr>
@@ -202,4 +188,3 @@ def dashboard():
     """
 
     return html
-

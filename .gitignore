@@ -1,0 +1,15 @@
+
+# Ignorar cache de Python
+__pycache__/
+*.py[cod]
+
+# Ignorar entornos virtuales
+venv/
+
+# Ignorar archivos temporales del sistema
+.DS_Store
+Thumbs.db
+
+# Ignorar archivos de logs y bases de datos temporales
+*.log
+*.sqlite3

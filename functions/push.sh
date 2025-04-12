@@ -1,35 +1,35 @@
-# functions/push.sh
+#!/usr/bin/env bash
 
 anc_handle_push() {
-    local anchor="$1"
+    local name="$1"
     local server="${2:-$(anc server name 2>/dev/null || echo http://localhost:17017)}"
-    local anchor_file="$ANCHOR_DIR/$anchor"
 
-    if [[ -z "$anchor" ]]; then
+    if [[ -z "$name" ]]; then
         echo -e "${YELLOW}Usage:${RESET} anc push <anchor> [server_url]"
         return 1
     fi
 
+    # Forzar extensión .json si no la tiene
+    [[ "$name" != *.json ]] && name="${name}.json"
+
+    local anchor_file="$ANCHOR_DIR/$name"
+
     if [[ ! -f "$anchor_file" ]]; then
-        echo -e "${RED}❌ Anchor '$anchor' not found at $anchor_file${RESET}"
+        echo -e "${RED}❌ Anchor '$name' not found at $anchor_file${RESET}"
         return 1
     fi
 
-    # Crear archivo temporal con extensión .json para cumplir con el server
-    local tmp_file
-    tmp_file=$(mktemp --suffix=.json)
-    cp "$anchor_file" "$tmp_file"
+    echo -e "${BLUE}⬆️  Uploading '$name' to $server...${RESET}"
+    local response
+    response=$(curl -s -w "%{http_code}" -X POST "$server/anchors/_upload" -F "file=@$anchor_file")
+    local status="${response: -3}"
+    local body="${response:: -3}"
 
-    echo -e "${BLUE}⬆️  Uploading anchor '$anchor' to $server...${RESET}"
-    curl -s -X POST "$server/anchors/$anchor" -F "file=@$tmp_file"
-
-    local exit_code=$?
-    rm -f "$tmp_file"
-
-    if [[ $exit_code -eq 0 ]]; then
-        echo -e "${GREEN}✅ Anchor '$anchor' pushed successfully${RESET}"
+    if [[ "$status" == "200" || "$status" == "201" ]]; then
+        echo -e "${GREEN}✅ '$name' pushed successfully${RESET}"
     else
-        echo -e "${RED}❌ Upload failed${RESET}"
+        echo -e "${RED}❌ Upload failed (${status})${RESET}"
+        echo -e "${YELLOW}Server response:${RESET} $body"
+        return 1
     fi
 }
-
