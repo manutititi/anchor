@@ -2,7 +2,7 @@
 
 anc_handle_edit() {
   local name="$1"
-  local file="$ANCHOR_DIR/$name"
+  local file="$ANCHOR_DIR/$name.json"
 
   if [[ -z "$name" ]]; then
     echo "Usage: anc edit <name>"

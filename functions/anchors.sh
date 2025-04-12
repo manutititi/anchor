@@ -28,8 +28,8 @@ anc() {
     
         
     set)
-      source "${BASH_SOURCE%/*}/set.sh"
-      anc_handle_set "$2"
+      shift
+      python3 "$ANCHOR_ROOT/core/main.py" set "$@"
       ;;
 
 
@@ -148,8 +148,8 @@ anc() {
 
         
     del)
-      source "${BASH_SOURCE%/*}/delete.sh"
-      anc_handle_del "$@"
+      shift
+      python3 "$ANCHOR_ROOT/core/main.py" del "$@"
       ;;
 
 

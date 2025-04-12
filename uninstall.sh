@@ -1,48 +1,39 @@
 #!/usr/bin/env bash
-
 set -e
 
 ANCHOR_HOME="$HOME/.anchors"
-SHELL_CONFIGS=("$HOME/.bashrc" "$HOME/.zshrc")
+RESET="\033[0m"
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
 
-echo "🧹 Uninstalling Anchor system from: $ANCHOR_HOME"
+echo -e "${YELLOW}🧹 Uninstalling Anchor from $ANCHOR_HOME...${RESET}"
 
-# Eliminar carpeta de instalación
+# Eliminar el directorio de instalación
 if [[ -d "$ANCHOR_HOME" ]]; then
   rm -rf "$ANCHOR_HOME"
-  echo "✅ Removed directory: $ANCHOR_HOME"
+  echo -e "${GREEN}✅ Removed $ANCHOR_HOME${RESET}"
 else
-  echo "ℹ️ Anchor directory not found. Skipping removal."
+  echo -e "${YELLOW}⚠️ Directory $ANCHOR_HOME not found.${RESET}"
 fi
 
-# Remover líneas de configuración en los shells
-remove_line() {
-  local file="$1"
-  local pattern="$2"
-  if [[ -f "$file" ]]; then
-    sed -i.bak "/${pattern//\//\\/}/d" "$file"
-    rm -f "${file}.bak"
-  fi
+# Limpiar los archivos de configuración del shell
+clean_shell_config() {
+  local config="$1"
+  if [[ ! -f "$config" ]]; then return; fi
+
+  echo -e "${BLUE}🧽 Cleaning $config...${RESET}"
+  sed -i '/export ANCHOR_HOME=.*\/.anchors/d' "$config"
+  sed -i '/export ANCHOR_DIR=.*\/.anchors\/data/d' "$config"
+  sed -i '/for f in "\$ANCHOR_HOME\/functions\//d' "$config"
+  sed -i '/source "\$f"/d' "$config"
+  sed -i '/source "\$ANCHOR_HOME\/completions\/anc"/d' "$config"
+  sed -i '/PATH="\$ANCHOR_HOME\/core:\$PATH"/d' "$config"
 }
 
-for CONFIG in "${SHELL_CONFIGS[@]}"; do
-  if [[ -f "$CONFIG" ]]; then
-    remove_line "$CONFIG" 'export ANCHOR_HOME='
-    remove_line "$CONFIG" 'export ANCHOR_DIR='
-    remove_line "$CONFIG" 'source "\$ANCHOR_HOME/functions/anchors.sh"'
-    remove_line "$CONFIG" 'source "\$ANCHOR_HOME/completions/anc"'
-    remove_line "$CONFIG" 'for f in "\$ANCHOR_HOME/functions/"\*.sh; do source "\$f"; done'
+clean_shell_config "$HOME/.bashrc"
+clean_shell_config "$HOME/.zshrc"
 
-    echo "🧽 Cleaned $CONFIG"
-  fi
-done
-
-# Intentar eliminar funciones del entorno actual
-unset -f anc 2>/dev/null || true
-unset -f anc_* 2>/dev/null || true
-hash -r
-
-echo "🧼 Cleared loaded functions from current shell session (if present)"
-echo "🗑️ Uninstallation complete!"
-echo "🔁 Please reload your shell or run: source ~/.bashrc or ~/.zshrc"
+echo -e "\n${GREEN}✅ Uninstallation complete.${RESET}"
+echo -e "${YELLOW}🔁 Please restart your shell or run: source ~/.bashrc${RESET}"
 

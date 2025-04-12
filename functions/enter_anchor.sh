@@ -14,11 +14,26 @@ anc_enter_anchor() {
 
   local name="$1"
   local second_arg="$2"
-  local meta_file="$ANCHOR_DIR/$name"
+  local meta_file="$ANCHOR_DIR/$name.json"
 
   if [[ ! -f "$meta_file" ]]; then
     echo -e "${RED}⚠️ Anchor '$name' not found${RESET}"
     return 1
+  fi
+
+  local type
+  type=$(jq -r '.type // "local"' "$meta_file")
+
+  if [[ "$type" == "url" ]]; then
+    local base_url
+    base_url=$(jq -r '.endpoint.base_url // empty' "$meta_file")
+    if [[ -n "$base_url" ]]; then
+      echo -e "${BLUE}🌐 Opening URL anchor '$name' → $base_url${RESET}"
+      xdg-open "$base_url" >/dev/null 2>&1 &
+    else
+      echo -e "${RED}❌ URL anchor '$name' has no base_url${RESET}"
+    fi
+    return
   fi
 
   local path
@@ -29,11 +44,10 @@ anc_enter_anchor() {
     return 1
   fi
 
-  # 🔄 Silenciosamente actualiza metadata si ha cambiado
+  # 🔄 Actualizar metadata si cambió
   local current_json
   anc_generate_metadata "$path" current_json
 
-  # Preservar rama fija si existía antes
   if jq -e '.git.set_branch' "$meta_file" >/dev/null; then
     local fixed_branch
     fixed_branch=$(jq -r '.git.set_branch' "$meta_file")
@@ -44,6 +58,7 @@ anc_enter_anchor() {
     echo "$current_json" > "$meta_file"
   fi
 
+  # 📡 Conexión SSH
   if [[ "$path" =~ ^ssh://([a-zA-Z0-9._%-]+@[a-zA-Z0-9._%-]+):(.+) ]]; then
     local user_host="${BASH_REMATCH[1]}"
     local remote_path="${BASH_REMATCH[2]}"
@@ -52,6 +67,7 @@ anc_enter_anchor() {
     return $?
   fi
 
+  # 📁 Anchor local
   if [[ ! -d "$path" ]]; then
     echo -e "${RED}❌ Anchor '$name' points to non-existent directory: $path${RESET}"
     return 1
@@ -76,7 +92,7 @@ anc_enter_anchor() {
         return 1
       }
 
-      # Usar la rama fija (set_branch) para cambiar si es necesario
+      # 🌀 Cambiar a rama si hay set_branch
       if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         local anchor_branch
         anchor_branch=$(jq -r '.git.set_branch // empty' <<< "$current_json")
@@ -95,4 +111,3 @@ anc_enter_anchor() {
       ;;
   esac
 }
-

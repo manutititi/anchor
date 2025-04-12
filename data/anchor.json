@@ -1,0 +1,30 @@
+{
+  "path": "/home/manu/own/anchor",
+  "type": "local",
+  "git": {
+    "root": "/home/manu/own/anchor",
+    "branch": "py-migrate",
+    "branches": [
+      "main",
+      "py-migrate"
+    ],
+    "tags": [
+      "v0.1"
+    ],
+    "remotes": [
+      {
+        "name": "origin",
+        "url": "git@github.com:manutititi/anchor.git"
+      }
+    ],
+    "is_dirty": false,
+    "commit": {
+      "hash": "948ac1bf6929dbbae134ee096eb7d9da77db6f9b",
+      "author": "manutititi",
+      "date": "Sat Apr 12 15:03:46 2025 +0200",
+      "message": "First Commit"
+    },
+    "set_branch": "py-migrate"
+  },
+  "docker": {}
+}
