@@ -1,6 +1,10 @@
 # Root
+# Root paths
 export ANCHOR_ROOT="${ANCHOR_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
 export ANCHOR_DIR="${ANCHOR_DIR:-"$ANCHOR_ROOT/data"}"
+export ENV_DIR="${ENV_DIR:-"$ANCHOR_ROOT/envs"}"
+export URL_DIR="${URL_DIR:-"$ANCHOR_ROOT/urls"}"
+
 
 
 
@@ -118,50 +122,12 @@ anc() {
       ;;
 
 
-
     ls)
       shift
-      local filter_string=""
-      local filter_mode=false
-
-      if [[ ("$1" == "--filter" || "$1" == "-f") && "$2" == *=* ]]; then
-        filter_string="$2"
-        filter_mode=true
-        shift 2
-      fi
-
-      echo -e "${BLUE}📌 Available anchors:${RESET}"
-      local found=0
-
-      local files=()
-      if [[ "$filter_mode" == true ]]; then
-        mapfile -t files < <(filter_anchors "$filter_string")
-      else
-        for file in "$anchor_dir"/*; do
-          [[ -f "$file" ]] && files+=("$(basename "$file")")
-        done
-      fi
-
-      for name in "${files[@]}"; do
-        local meta_file="$anchor_dir/$name"
-        local path note
-        path=$(jq -r '.path // empty' "$meta_file")
-        note=$(jq -r '.note // empty' "$meta_file")
-
-        if [[ -n "$path" ]]; then
-          if [[ -n "$note" ]]; then
-            printf "  ${CYAN}⚓ %-20s${RESET} → ${GREEN}%-40s${RESET} --------> 📝 %s\n" "$name" "$path" "$note"
-          else
-            printf "  ${CYAN}⚓ %-20s${RESET} → ${GREEN}%s${RESET}\n" "$name" "$path"
-          fi
-          found=1
-        fi
-      done
-
-      if [[ "$found" -eq 0 ]]; then
-        echo -e "  ${YELLOW}(⚠️ no matching anchors found)${RESET}"
-      fi
+      python3 "$ANCHOR_ROOT/core/main.py" ls "$@"
       ;;
+
+    
 
             
 

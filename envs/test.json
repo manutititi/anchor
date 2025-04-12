@@ -1,0 +1,22 @@
+{
+  "name": "test",
+  "vars": {
+    "API_TOKEN": "",
+    "DB_URL": "",
+    "SECRET_KEY": "",
+    "BASE_URL": "",
+    "ENV": ""
+  },
+  "scripts": {
+    "preload": "",
+    "postload": ""
+  },
+  "meta": {
+    "created_by": "manu",
+    "created_at": "2025-04-11T18:28:28Z",
+    "description": "",
+    "tags": [],
+    "shared": false,
+    "encrypted": false
+  }
+}
