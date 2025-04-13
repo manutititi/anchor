@@ -161,9 +161,9 @@ def handle_test_routes(args):
             try:
                 result = subprocess.check_output(cmd).decode().strip()
                 if result == str(expect):
-                    print(green(f"✅ {method} {path} → {result}"))
+                    print(green(f"✅ {method} {path} → {result} → {base_url}"))
                 else:
-                    print(red(f"❌ {method} {path} → {result} (expected {expect})"))
+                    print(red(f"❌ {method} {path} → {result} → {base_url} (expected {expect})"))
             except Exception as e:
                 print(red(f"❌ {method} {path} → failed ({e})"))
 
