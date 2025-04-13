@@ -2,7 +2,7 @@
 
 anc_show_anchor() {
   local anchor="$1"
-  local meta_file="$ANCHOR_DIR/$anchor"
+  local meta_file="$ANCHOR_DIR/$anchor.json"
 
   if [[ -z "$anchor" ]]; then
     echo "Usage: anc show <anchor>"

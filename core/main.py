@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Importar subcomandos
-from commands import ls
+from commands import ls, meta, url
 from commands import set as set_cmd
 from commands import delete
 
@@ -15,14 +15,14 @@ def main():
     parser = argparse.ArgumentParser(prog="anc", description="Anchor CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Comando: ls
+    # ls
     ls_parser = subparsers.add_parser("ls", help="List anchors")
     ls_parser.add_argument("-f", "--filter", help="Filter in key=value format")
     ls_parser.add_argument("-u", "--url", action="store_true", help="List anchors of type 'url'")
     ls_parser.add_argument("-e", "--env", action="store_true", help="List anchors of type 'env'")
     ls_parser.set_defaults(func=ls.run)
 
-    # Comando: set
+    # set
     set_parser = subparsers.add_parser("set", help="Create or update an anchor")
     set_parser.add_argument("name", nargs="?", help="Anchor name or path")
     set_parser.add_argument("--url", action="store_true", help="Create a URL-type anchor")
@@ -32,11 +32,40 @@ def main():
     set_parser.add_argument("--server", nargs="?", const="http://localhost:17017", help="Set server URL (default: localhost:17017)")
     set_parser.set_defaults(func=set_cmd.run)
 
-    # Comando: del
+    # del
     del_parser = subparsers.add_parser("del", help="Delete anchors")
     del_parser.add_argument("name", nargs="?", help="Anchor name")
     del_parser.add_argument("-f", "--filter", help="Filter in key=value format")
     del_parser.set_defaults(func=delete.run)
+
+
+    # meta
+    meta_parser = subparsers.add_parser("meta", help="Update metadata")
+    meta_parser.add_argument("anchor")
+    meta_parser.add_argument("kv_pairs", nargs="+")
+    meta_parser.set_defaults(func=meta.run)
+
+
+    # url
+    url_parser = subparsers.add_parser("url", help="Manage URL anchors")
+
+    # main subcommands
+    url_parser.add_argument("-a", "--add-route", action="store_true", help="Add route to URL anchor")
+    url_parser.add_argument("-t", "--test", action="store_true", help="Test routes of a URL anchor")
+    url_parser.add_argument("-d", "--del-route", dest="del_route", action="store_true", help="Delete a route from an anchor")
+    url_parser.add_argument("-c", "--call", nargs="+", help="Call endpoint: <anchor> [method] [/path] [json_body]")
+
+    url_parser.add_argument("anchor", nargs="?", help="Anchor name")
+    url_parser.add_argument("method", nargs="?", help="HTTP method (GET, POST...)")
+    url_parser.add_argument("route_path", nargs="?", help="Route path (e.g. /users)")
+    url_parser.add_argument("kv", nargs="*", help="key=value pairs and optional status code")
+    url_parser.add_argument("-F", "--files", action="store_true", help="Send files as multipart/form-data") 
+    # Handler
+    url_parser.set_defaults(func=url.run)
+
+
+
+
 
     args = parser.parse_args()
 

@@ -41,21 +41,6 @@ anc() {
       ;;
 
 
-    
-    set-url)
-      source "${BASH_SOURCE%/*}/set_url.sh"
-      anc_handle_set_url "$2" "$3"
-      ;;
-
-
-
-    add-route)
-      source "${BASH_SOURCE%/*}/add_route.sh"
-      anc_handle_add_route "$2" "$3" "$4" "$5"
-      ;;
-
-
-
 
     edit)
       shift
@@ -86,40 +71,12 @@ anc() {
       ;;
 
 
-
-
     meta)
-      local anchor="$2"
-      shift 2
-
-      if [[ -z "$anchor" || "$#" -eq 0 ]]; then
-        echo -e "${YELLOW}Usage:${RESET} anc meta <anchor> key=value [key=value ...]"
-        return 1
-      fi
-
-      local meta_file="$anchor_dir/$anchor"
-
-      if [[ ! -f "$meta_file" ]]; then
-        echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
-        return 1
-      fi
-
-      local jq_expr=""
-      for pair in "$@"; do
-        local key="${pair%%=*}"
-        local value="${pair#*=}"
-        jq_expr+=".\"$key\" = \"${value}\" | "
-      done
-
-      # Eliminar último ' | ' si existe
-      jq_expr="${jq_expr% | }"
-
-      local tmp
-      tmp="$(mktemp)"
-      jq "$jq_expr" "$meta_file" > "$tmp" && mv "$tmp" "$meta_file"
-
-      echo -e "${GREEN}✅ Metadata updated for anchor '${BOLD}$anchor${RESET}${GREEN}'${RESET}"
+      shift
+      python3 "$ANCHOR_ROOT/core/main.py" meta "$@"
       ;;
+
+    
 
 
     ls)
@@ -190,7 +147,11 @@ anc() {
      
 
 
-  
+    url)
+      shift
+      python3 "$ANCHOR_ROOT/core/main.py" url "$@"
+      ;;
+
 
     
     

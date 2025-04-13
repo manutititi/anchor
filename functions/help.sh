@@ -7,70 +7,61 @@ anc_handle_help() {
   local YELLOW="\033[0;33m"
   local BLUE="\033[1;34m"
 
-  echo -e "${BOLD}📖 anc - Simple anchor system for directories and files${RESET}\n"
+  echo -e "${BOLD}📖 anc - Simple anchor system for directories, environments, and APIs${RESET}\n"
 
   echo -e "${CYAN}🎯 Navigation:${RESET}"
-  echo -e "  anc                        - ⚓ Go to the 'default' anchor"
-  echo -e "  anc <name>                - ⚓ Jump to a specific anchor"
-  echo -e "  anc <name> ls             - 📂 List contents of anchor directory"
-  echo -e "  anc <name> tree           - 🌲 Tree view of anchor directory"
-  echo -e "  anc show <name>           - 🔍 Show path, note, and metadata"
-  echo -e "  anc ls [--filter k=v]     - 📌 List all anchors (optionally filtered by metadata)"
+  echo -e "  anc                          - ⚓ Go to default anchor"
+  echo -e "  anc <name>                  - ⚓ Jump to anchor"
+  echo -e "  anc <name> ls               - 📂 List contents of anchor directory"
+  echo -e "  anc <name> tree             - 🌲 Tree view of anchor directory"
+  echo -e "  anc show <name>             - 🔍 Show full metadata of anchor"
+  echo -e "  anc ls [-e|-u|-f k=v]       - 📌 List anchors (envs, URLs, or filtered)"
   echo
 
   echo -e "${CYAN}🛠️  Anchor Management:${RESET}"
-  echo -e "  anc set [name]            - 📍 Set anchor for current directory"
-  echo -e "  anc set-ssh <name> <url>  - 🌐 Set anchor to remote SSH path"
-  echo -e "  anc del <name>            - 🗑️ Delete an anchor"
-  echo -e "  anc rename <old> <new>    - 🔄 Rename an anchor"
-  echo -e "  anc prune                 - 🧹 Remove anchors pointing to non-existent dirs"
-  echo -e "  anc note <name> [msg]     - 📝 Add or update note for an anchor"
-  echo -e "  anc meta <name> k=v ...   - 🧩 Set metadata (key=value) for an anchor"
+  echo -e "  anc set [--rel] [name]            - 📍 Set local anchor to current directory"
+  echo -e "  anc set --env <name> [.env]       - 🧪 Create environment anchor"
+  echo -e "  anc set --url <name> <url>        - 🌍 Create web/API anchor"
+  echo -e "  anc set --server <url>            - 🛰️  Set remote anchor server URL"
+  echo -e "  anc del <name>                    - 🗑️  Delete anchor"
+  echo -e "  anc rename <old> <new>            - 🔄 Rename anchor"
+  echo -e "  anc prune                         - 🧹 Remove anchors pointing to non-existent directories"
+  echo -e "  anc note <name> [msg]             - 📝 Add or update note"
+  echo -e "  anc meta <name> k=v ...           - 🧩 Set or override metadata"
   echo
 
   echo -e "${CYAN}📂 File Transfer:${RESET}"
-  echo -e "  anc cp <file...> <anchor[/subpath]> - 📥 Copy one or more files/dirs to anchor"
-  echo -e "  anc mv <file...> <anchor[/subpath]> - 🚚 Move one or more files/dirs to anchor"
+  echo -e "  anc cp <file...> <anchor[/subpath]>        - 📥 Copy file(s) to anchor"
+  echo -e "  anc mv <file...> <anchor[/subpath]>        - 🚚 Move file(s) to anchor"
   echo -e "  anc cpt <from-anchor[/path]> <to-anchor[/path]> - 🔁 Copy between anchors"
   echo
 
   echo -e "${CYAN}▶️  Execute Commands:${RESET}"
-  echo -e "  anc run <name> <cmd>          - 🚀 Run command inside anchor directory"
-  echo -e "  anc run --filter k=v <cmd>    - 🔎 Run command in anchors matching metadata"
+  echo -e "  anc run <anchor> <cmd>                    - 🚀 Run command inside anchor"
+  echo -e "  anc run --filter k=v <cmd>                - 🔎 Run command in anchors matching metadata"
   echo
 
-  echo -e "${CYAN}🌐 Remote Sync (Server):${RESET}"
-  echo -e "  anc push <name>               - ⬆️  Upload anchor to server"
-  echo -e "  anc pull <name>               - ⬇️  Download anchor from server"
-  echo -e "  anc pull --all                - ⬇️  Download all anchors"
-  echo -e "  anc pull -f k=v               - ⬇️  Download anchors matching metadata"
+  echo -e "${CYAN}🌐 URL Anchors / API:${RESET}"
+  echo -e "  anc url -a <anchor> [method] [path] [params] [status]     - ➕ Add route"
+  echo -e "  anc url -d <anchor>                                       - 🗑️  Delete route"
+  echo -e "  anc url -t <anchor>                                       - 🧪 Test defined routes"
+  echo -e "  anc url -c <anchor> <method> [path] [data|file]           - 🌐 Call API"
+  echo -e "    Supports JSON, file uploads (-F), env token injection"
   echo
 
-  echo -e "  anc server name [url]         - 🌍 Set or show server URL"
-  echo -e "  anc server ls                 - 📋 List anchors from remote server"
-  echo -e "  anc server ls -f k=v          - 📋 Filter remote anchors by metadata"
-  echo -e "  anc server ls <name>          - 🔍 Show raw metadata of remote anchor"
+  echo -e "${CYAN}🌐 Server Sync:${RESET}"
+  echo -e "  anc pull <name>                      - ⬇️  Download anchor from server"
+  echo -e "  anc pull --all                       - ⬇️  Download all remote anchors"
+  echo -e "  anc pull -f key=value                - ⬇️  Filter and download"
+  echo -e "  anc server ls                        - 📋 List anchors on remote"
+  echo -e "  anc server ls -f key=value           - 📋 Filter remote anchors"
+  echo -e "  anc server ls <name>                 - 🔍 Show raw remote anchor metadata"
+  echo
 
+  echo -e "${CYAN}📦 Environments:${RESET}"
+  echo -e "  anc env apply <name>                - 📥 Apply env vars from anchor"
+  echo
 
- 
-  echo -e "${CYAN}🌐 Web / URL Anchors / API:${RESET}"
-  echo -e "  anc set-url <name> <url>           - 🌍 Create a web anchor with base URL"
-  echo -e "  anc add-route <name> <method> <path> [status] [params]  - ➕ Add API route definition"
-  echo -e "  anc api <name> <path> [method]     - 🌐 Call an API endpoint"
-  echo -e "  anc api ls <name>                  - 📋 List all API routes for an anchor"
-  echo -e "  anc api-test <name>                - 🧪 Run all defined API tests"
-
-
-
-  echo -e "Export"
-  echo -e "anc export <name> <format>"
-
-
-
-  echo -e "ENVS"
-  echo -e "anc env init <name>      - create an env.json replicable"
-  echo -e "anc env apply <name>     - Apply the env in the current dir" 
-
-
+  echo -e "${CYAN}📤 Export:${RESET}"
+  echo -e "  anc export <name> <format>          - 🔄 Export anchor (json, markdown, postman, etc)"
 }
-
