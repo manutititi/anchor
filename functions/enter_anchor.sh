@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 source "${BASH_SOURCE%/*}/generate_metadata.sh"
+source "${BASH_SOURCE%/*}/env.sh"
 
 anc_enter_anchor() {
   local BOLD="\033[1m"
@@ -54,7 +55,14 @@ anc_enter_anchor() {
     return $?
   fi
 
-  # 🧭 Leer path (expande ~ para uso, pero guarda el original)
+  # 🧪 Aplicar entorno si es tipo env
+  if [[ "$type" == "env" ]]; then
+    echo -e "${CYAN}🧪 Detected environment anchor '${BOLD}$name${RESET}${CYAN}', applying...${RESET}"
+    anc_env_apply "$name"
+    return $?
+  fi
+
+  # 🧭 Leer path
   local raw_path
   raw_path=$(jq -r '.path // empty' "$meta_file")
   local path="$raw_path"
@@ -67,7 +75,7 @@ anc_enter_anchor() {
     return 1
   fi
 
-  # 🔄 Generar metadata y restaurar path original antes de comparar
+  # 🔄 Generar metadata y restaurar path original
   local current_json
   anc_generate_metadata "$path" current_json
   current_json=$(jq --arg p "$raw_path" '.path = $p' <<< "$current_json")
@@ -82,7 +90,7 @@ anc_enter_anchor() {
     echo "$current_json" > "$meta_file"
   fi
 
-  # 📡 Soporte heredado para path tipo ssh://user@host:/ruta
+  # 📡 Soporte heredado para ssh://
   if [[ "$path" =~ ^ssh://([a-zA-Z0-9._%-]+@[a-zA-Z0-9._%-]+):(.+) ]]; then
     local user_host="${BASH_REMATCH[1]}"
     local remote_path="${BASH_REMATCH[2]}"
@@ -116,7 +124,6 @@ anc_enter_anchor() {
         return 1
       }
 
-      # 🌀 Cambiar a rama si hay set_branch
       if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         local anchor_branch
         anchor_branch=$(jq -r '.git.set_branch // empty' <<< "$current_json")
@@ -135,4 +142,3 @@ anc_enter_anchor() {
       ;;
   esac
 }
-

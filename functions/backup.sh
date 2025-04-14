@@ -30,7 +30,8 @@ anc_handle_backup() {
   fi
 
   for name in "${anchors[@]}"; do
-    local meta_file="$ANCHOR_DIR/$name"
+    local meta_file="$ANCHOR_DIR/$name.json"
+
     if [[ ! -f "$meta_file" ]]; then
       echo -e "${RED}⚠️ Anchor '$name' not found${RESET}"
       continue
@@ -42,16 +43,17 @@ anc_handle_backup() {
     local anchor_backup_dir="$backup_dir/$name"
     mkdir -p "$anchor_backup_dir"
 
-    cp "$meta_file" "$anchor_backup_dir/$name"
+    # Guardar metadata
+    cp "$meta_file" "$anchor_backup_dir/$name.json"
 
+    # Verificar path y crear backup si es válido
     if [[ -z "$path" || ! -d "$path" ]]; then
       echo -e "${YELLOW}⚠️ Anchor '$name' has no valid local path. Skipping file backup.${RESET}"
       continue
     fi
 
-    tar -czf "$anchor_backup_dir/$name.tar.gz" -C "$path" . 2>/dev/null && \
+    tar -czf "$anchor_backup_dir/files.tar.gz" -C "$path" . 2>/dev/null && \
       echo -e "${GREEN}✅ Backup completed for anchor '${BOLD}$name${RESET}${GREEN}'${RESET}" || \
       echo -e "${RED}❌ Failed to compress files for anchor '$name'${RESET}"
   done
 }
-

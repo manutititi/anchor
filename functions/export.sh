@@ -3,7 +3,7 @@
 anc_handle_export() {
   local name="$1"
   local format="$2"
-  local file="$ANCHOR_DIR/$name"
+  local file="$ANCHOR_DIR/$name.json"
 
   if [[ -z "$name" || -z "$format" ]]; then
     echo "Usage: anc export <name> <format: json|http|md|postman>"

@@ -2,20 +2,6 @@
 
 ANCHOR_DIR="${ANCHOR_DIR:-"$ANCHOR_ROOT/data"}"
 
-anc_handle_env() {
-  local subcommand="$1"
-  shift
-
-  case "$subcommand" in
-    apply)
-      anc_env_apply "$@"
-      ;;
-    *)
-      echo "Usage: anc env apply <name>"
-      ;;
-  esac
-}
-
 anc_env_apply() {
   local env_name="$1"
   if [[ -z "$env_name" ]]; then
@@ -40,8 +26,7 @@ anc_env_apply() {
 
   # Exportar variables
   local vars_keys
-  vars_keys=$(jq -r '.vars | keys[]' "$env_file")
-
+  vars_keys=$(jq -r '.vars | keys[]?' "$env_file")
   for key in $vars_keys; do
     local value
     value=$(jq -r --arg k "$key" '.vars[$k]' "$env_file")
@@ -55,28 +40,27 @@ anc_env_apply() {
   done
 
   # Ejecutar scripts preload
-  if jq -e '.scripts.preload | type == "string"' "$env_file" >/dev/null 2>&1; then
-    local script
-    script=$(jq -r '.scripts.preload' "$env_file")
-    anc_run_script "$script" "preload" || return 1
-  elif jq -e '.scripts.preload | type == "array"' "$env_file" >/dev/null 2>&1; then
-    jq -r '.scripts.preload[]' "$env_file" | while read -r script; do
-      anc_run_script "$script" "preload" || return 1
-    done
-  fi
+  anc_run_scripts "$env_file" "preload" || return 1
 
   # Ejecutar scripts postload
-  if jq -e '.scripts.postload | type == "string"' "$env_file" >/dev/null 2>&1; then
-    local script
-    script=$(jq -r '.scripts.postload' "$env_file")
-    anc_run_script "$script" "postload" || return 1
-  elif jq -e '.scripts.postload | type == "array"' "$env_file" >/dev/null 2>&1; then
-    jq -r '.scripts.postload[]' "$env_file" | while read -r script; do
-      anc_run_script "$script" "postload" || return 1
-    done
-  fi
+  anc_run_scripts "$env_file" "postload" || return 1
 
   echo "✅ Environment '$env_name' applied."
+}
+
+anc_run_scripts() {
+  local env_file="$1"
+  local label="$2"
+
+  if jq -e --arg l "$label" ".scripts[\$l] | type == \"string\"" "$env_file" >/dev/null 2>&1; then
+    local script
+    script=$(jq -r ".scripts[\"$label\"]" "$env_file")
+    anc_run_script "$script" "$label" || return 1
+  elif jq -e --arg l "$label" ".scripts[\$l] | type == \"array\"" "$env_file" >/dev/null 2>&1; then
+    jq -r ".scripts[\"$label\"][]" "$env_file" | while read -r script; do
+      anc_run_script "$script" "$label" || return 1
+    done
+  fi
 }
 
 anc_run_script() {
@@ -84,16 +68,12 @@ anc_run_script() {
   local label="$2"
   local resolved=""
 
-  # Si es ruta absoluta y ejecutable
   if [[ "$script" =~ ^/ ]] && [[ -x "$script" ]]; then
     resolved="$script"
-  # Si es ejecutable relativo al directorio actual
   elif [[ -x "$script" ]]; then
     resolved="$script"
-  # Si existe en ./scripts/
   elif [[ -x "./scripts/$script" ]]; then
     resolved="./scripts/$script"
-  # Si existe en $ANCHOR_ROOT/scripts/
   elif [[ -n "$ANCHOR_ROOT" && -x "$ANCHOR_ROOT/scripts/$script" ]]; then
     resolved="$ANCHOR_ROOT/scripts/$script"
   fi
