@@ -17,10 +17,11 @@ def main():
 
     # ls
     ls_parser = subparsers.add_parser("ls", help="List anchors")
-    ls_parser.add_argument("-f", "--filter", help="Filter in key=value format")
+    ls_parser.add_argument("-f", "--filter", help="Filter in key=value format (supports AND/OR, ~, !=, etc.)")
     ls_parser.add_argument("-u", "--url", action="store_true", help="List anchors of type 'url'")
     ls_parser.add_argument("-e", "--env", action="store_true", help="List anchors of type 'env'")
     ls_parser.set_defaults(func=ls.run)
+
 
     # set
     set_parser = subparsers.add_parser("set", help="Create or update an anchor")
