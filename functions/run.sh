@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 
+filter_anchors() {
+  local query="$1"
+  ANCHOR_DIR="$ANCHOR_DIR" python3 "$ANCHOR_ROOT/core/utils/filter.py" "$query"
+}
+
 anc_handle_run() {
   local anchor_dir="$ANCHOR_DIR"
   shift
   local filter_string=""
-  local mode="single"
   local cmd=""
+  local mode="single"
   local files=()
 
   if [[ ("$1" == "--filter" || "$1" == "-f") && "$2" == *=* ]]; then
@@ -14,7 +19,7 @@ anc_handle_run() {
     cmd="$*"
 
     if [[ -z "$cmd" ]]; then
-      echo -e "${YELLOW}Usage:${RESET} anc run -f key=value[,key=value...] <command>"
+      echo -e "Usage: anc run -f key=value[,key=value...] <command>"
       return 1
     fi
 
@@ -26,12 +31,12 @@ anc_handle_run() {
     cmd="$*"
 
     if [[ -z "$anchor" || -z "$cmd" ]]; then
-      echo -e "${YELLOW}Usage:${RESET} anc run <anchor> <command>"
+      echo -e "Usage: anc run <anchor> <command>"
       return 1
     fi
 
-    if [[ ! -f "$anchor_dir/$anchor" ]]; then
-      echo -e "${RED}⚠️ Anchor '$anchor' not found${RESET}"
+    if [[ ! -f "$anchor_dir/$anchor.json" ]]; then
+      echo -e "⚠️ Anchor '$anchor' not found"
       return 1
     fi
 
@@ -39,29 +44,39 @@ anc_handle_run() {
   fi
 
   for name in "${files[@]}"; do
-    local meta_file="$anchor_dir/$name"
+    local meta_file="$anchor_dir/$name.json"
     local path
-    path=$(jq -r '.path // empty' "$meta_file")
+    local raw_path
+    raw_path=$(jq -r '.path // empty' "$meta_file")
 
-    if [[ -z "$path" ]]; then
-      echo -e "${YELLOW}⚠️ Anchor '$name' has no path, skipping${RESET}"
+    if [[ -z "$raw_path" ]]; then
+      echo -e "⚠️ Anchor '$name' has no path, skipping"
       continue
     fi
 
-    echo -e "${CYAN}⚓ Running in '$name' → $path:${RESET}"
+    # Expandir rutas relativas y ~
+    if [[ "$raw_path" == "~/"* ]]; then
+      path="${HOME}/${raw_path:2}"
+    elif [[ "$raw_path" == "./"* || "$raw_path" == "../"* ]]; then
+      path="$(realpath "$ANCHOR_HOME/$raw_path" 2>/dev/null)"
+    else
+      path="$(realpath "$raw_path" 2>/dev/null)"
+    fi
 
-    if [[ "$path" == ssh://* ]]; then
-      if [[ "$path" =~ ^ssh://([^:]+):(.+)$ ]]; then
+    echo -e "🔗 Running in '${name}' → ${path}:"
+
+    if [[ "$raw_path" == ssh://* ]]; then
+      if [[ "$raw_path" =~ ^ssh://([^:]+):(.+)$ ]]; then
         local user_host="${BASH_REMATCH[1]}"
         local remote_path="${BASH_REMATCH[2]}"
         ssh "$user_host" -t "cd '$remote_path' && $cmd"
       else
-        echo -e "${RED}❌ Invalid SSH path format in anchor '$name': $path${RESET}"
-        continue
+        echo -e "❌ Invalid SSH path format in anchor '$name': $raw_path"
       fi
-    else
+    elif [[ -d "$path" ]]; then
       (cd "$path" && eval "$cmd")
+    else
+      echo -e "❌ Path '$path' is not valid or not a directory"
     fi
   done
 }
-

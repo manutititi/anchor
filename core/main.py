@@ -41,9 +41,13 @@ def main():
 
     # meta
     meta_parser = subparsers.add_parser("meta", help="Update metadata")
-    meta_parser.add_argument("anchor")
-    meta_parser.add_argument("kv_pairs", nargs="+")
+    meta_parser.add_argument("-f", "--filter", help="Filter anchors")
+    meta_parser.add_argument("args", nargs="*", help="Anchor name followed by key=value pairs")
+    meta_parser.add_argument("--del", nargs="+", dest="delete", help="Keys to delete")
     meta_parser.set_defaults(func=meta.run)
+
+
+    
 
 
     # url
@@ -62,6 +66,8 @@ def main():
     url_parser.add_argument("-F", "--files", action="store_true", help="Send files as multipart/form-data") 
     # Handler
     url_parser.set_defaults(func=url.run)
+
+
 
 
 
