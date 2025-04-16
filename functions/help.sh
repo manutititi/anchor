@@ -64,4 +64,8 @@ anc_handle_help() {
 
   echo -e "${CYAN}📤 Export:${RESET}"
   echo -e "  anc export <name> <format>          - 🔄 Export anchor (json, markdown, postman, etc)"
+  echo
+
+  echo -e "${CYAN}♻️  Reconstruction:${RESET}"
+  echo -e "  anc rc <anchor> [target_path]       - 🧬 Recreate full environment from anchor metadata"
 }
