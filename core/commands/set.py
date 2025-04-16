@@ -4,17 +4,10 @@ import subprocess
 from datetime import datetime, timezone
 from collections import OrderedDict
 
-# === Colores ===
-def color(text, code): return f"\033[{code}m{text}\033[0m"
-def bold(text): return color(text, "1")
-def green(text): return color(text, "0;32")
-def blue(text): return color(text, "1;34")
-def cyan(text): return color(text, "1;36")
-def yellow(text): return color(text, "0;33")
-def red(text): return color(text, "0;31")
+from core.utils.colors import red, green, blue, yellow, cyan, bold
+from core.utils.path import resolve_path
+from core.utils.docker_meta import generate_docker_metadata
 
-# === Utilidades ===
-def realpath(p): return os.path.abspath(os.path.expanduser(p or "."))
 
 def now_iso(): return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -175,10 +168,8 @@ def parse_env_file(env_path):
                 env_vars[key.strip()] = val.strip().strip('"').strip("'")
     return env_vars
 
-
 # === MAIN ===
 def run(args):
-    # --- Server mode ---
     if args.server is not None:
         return handle_server(args)
 
@@ -249,11 +240,67 @@ def run(args):
         print(green(f"✅ Anchor '{bold(name)}' created as type '{cyan('url')}'"))
         print(blue(f"🌐 Base URL: {base_url}"))
         return
+    
+
+
+    # --- Docker mode ---
+    # --- Docker mode ---
+    if args.docker:
+        name = args.name
+        if not name:
+            print(red("❌ Usage: anc set --docker <name> [path]"))
+            return
+
+        if name.endswith(".json"):
+            name = name[:-5]
+
+        base_path = resolve_path(args.base_url or ".")
+        filename = f"{name}.json"
+        meta_path = os.path.join(args.anchor_dir, filename)
+
+        if os.path.exists(meta_path):
+            print(yellow(f"⚠️  Anchor already exists: {meta_path}"))
+            confirm = input("Overwrite? [y/N] ").strip().lower()
+            if confirm not in ("y", "yes"):
+                print(red("❌ Aborted. Anchor not overwritten."))
+                return
+
+        meta = OrderedDict()
+        meta["type"] = "docker"
+        meta["path"] = base_path
+        meta["created_at"] = now_iso()
+
+        git = detect_git_metadata(base_path)
+        if git:
+            meta["git"] = git
+
+        docker = generate_docker_metadata(base_path)
+        if docker.get("active"):
+            meta["docker"] = docker
+        else:
+            print(red(f"❌ No valid docker-compose.yml found in: {base_path}"))
+            return
+
+        with open(meta_path, "w") as f:
+            json.dump(meta, f, indent=2, sort_keys=False)
+
+        print(cyan(f"⚓ Docker anchor '{bold(name)}' created at: {green(meta_path)}"))
+        print(blue("🐳 Docker Compose detected and embedded"))
+        print(f"  {cyan('Services:')}")
+        for s in docker.get("services", []):
+            print(f"    - {s.get('name')} ({s.get('image')})")
+        print(f"  {cyan('Files captured:')} {len(docker.get('files', {}))}")
+        return
+
+
+
+
+
 
     # --- Default (local path) ---
     input_val = args.name
     if not input_val or input_val.startswith("/") or input_val.startswith(".") or os.path.isdir(input_val):
-        abs_path = realpath(input_val)
+        abs_path = resolve_path(input_val)
         path = abs_path
         name = os.path.basename(abs_path)
     else:
@@ -299,8 +346,12 @@ def run(args):
             print(f"    - {s.get('name')}")
 
 
-# === SERVER ===
 
+
+
+    
+
+# === SERVER ===
 def handle_server(args):
     server_url = args.server or "http://localhost:17017"
 
@@ -317,6 +368,8 @@ def handle_server(args):
     with open(server_file, "w") as f:
         json.dump({ "url": server_url }, f, indent=2)
 
-    os.chmod(server_file, 0o644)  # ← Ajuste de permisos aquí
+    os.chmod(server_file, 0o644)
 
     print(green(f"✅ Server URL set to: {cyan(server_url)}"))
+
+

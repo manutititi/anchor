@@ -7,8 +7,9 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Importar subcomandos
-from commands import ls, meta, url
+from commands import ls, meta, url, rc
 from commands import set as set_cmd
+from core.commands import docker as docker_cmd
 from commands import delete
 
 def main():
@@ -29,6 +30,7 @@ def main():
     set_parser.add_argument("--url", action="store_true", help="Create a URL-type anchor")
     set_parser.add_argument("--env", action="store_true", help="Create an environment anchor")
     set_parser.add_argument("base_url", nargs="?", help="Base URL or .env file depending on context")
+    set_parser.add_argument("--docker", action="store_true", help="Create a Docker-type anchor")
     set_parser.add_argument("--rel", action="store_true", help="Store path relative to home (~)")
     set_parser.add_argument("--server", nargs="?", const="http://localhost:17017", help="Set server URL (default: localhost:17017)")
     set_parser.set_defaults(func=set_cmd.run)
@@ -53,23 +55,35 @@ def main():
 
     # url
     url_parser = subparsers.add_parser("url", help="Manage URL anchors")
-
-    # main subcommands
     url_parser.add_argument("-a", "--add-route", action="store_true", help="Add route to URL anchor")
     url_parser.add_argument("-t", "--test", action="store_true", help="Test routes of a URL anchor")
     url_parser.add_argument("-d", "--del-route", dest="del_route", action="store_true", help="Delete a route from an anchor")
     url_parser.add_argument("-c", "--call", nargs="+", help="Call endpoint: <anchor> [method] [/path] [json_body]")
-
     url_parser.add_argument("anchor", nargs="?", help="Anchor name")
     url_parser.add_argument("method", nargs="?", help="HTTP method (GET, POST...)")
     url_parser.add_argument("route_path", nargs="?", help="Route path (e.g. /users)")
     url_parser.add_argument("kv", nargs="*", help="key=value pairs and optional status code")
     url_parser.add_argument("-F", "--files", action="store_true", help="Send files as multipart/form-data") 
-    # Handler
     url_parser.set_defaults(func=url.run)
 
 
 
+
+    # restore (rc)
+    rc_parser = subparsers.add_parser("rc", help="Restore environment from anchor files")
+    rc_parser.add_argument("anchor", help="Anchor name to restore")
+    rc_parser.add_argument("path", nargs="?", help="Target path to restore files into")
+    rc_parser.set_defaults(func=rc.run)
+
+
+
+
+
+    
+    # docker
+    docker_parser = subparsers.add_parser("docker", help="Manage docker-based anchors")
+    docker_parser.add_argument("-r", "--restore", nargs="+", help="Restore a docker anchor into a directory")
+    docker_parser.set_defaults(func=docker_cmd.run)
 
 
 

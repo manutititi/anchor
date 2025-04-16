@@ -1,13 +1,8 @@
 import os
 import json
-from core.utils.filter import filter_anchors
 
-def color(text, code): return f"\033[{code}m{text}\033[0m"
-def cyan(text): return color(text, "1;36")
-def green(text): return color(text, "0;32")
-def red(text): return color(text, "0;31")
-def yellow(text): return color(text, "0;33")
-def blue(text): return color(text, "1;34")
+from core.utils.filter import filter_anchors
+from core.utils.colors import cyan, blue, green, red, yellow, magenta, gray, dim
 
 def basename_no_ext(filename):
     return os.path.splitext(filename)[0]
@@ -21,7 +16,6 @@ def run(args):
     filter_str = args.filter
     filter_type = "url" if args.url else "env" if args.env else None
 
-    # Aplica filtro avanzado
     all_filtered = filter_anchors(filter_str)
     found = False
 
@@ -37,17 +31,25 @@ def run(args):
 
         if type_ == "url":
             info = data.get("endpoint", {}).get("base_url", "")
-        elif type_ == "local":
+        elif type_ in ["local", "file", "ssh"]:
             info = data.get("path", "")
         elif type_ == "env":
-            info = ""
+            info = "env"
+
+        type_color_fn = {
+            "url": cyan,
+            "env": magenta,
+            "local": blue,
+            "ssh": blue,
+            "file": yellow
+        }.get(type_, gray)
 
         name_fmt = cyan(f"⚓ {name:<20}")
-        type_fmt = blue(f"[{type_}]")
+        type_fmt = type_color_fn(f"[{type_}]")
         info_fmt = green(info) if info else red("(no path)")
 
         if note:
-            print(f"  {name_fmt} {type_fmt} → {info_fmt:<30} 📝 {note}")
+            print(f"  {name_fmt} {type_fmt} → {info_fmt:<30} {yellow('📝 ' + note)}")
         else:
             print(f"  {name_fmt} {type_fmt} → {info_fmt}")
         found = True

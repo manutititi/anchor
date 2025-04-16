@@ -1,13 +1,9 @@
 import os
 import json
 from pathlib import Path
-from core.utils.filter import filter_anchors
 
-def color(text, code): return f"\033[{code}m{text}\033[0m"
-def green(text): return color(text, "0;32")
-def red(text): return color(text, "0;31")
-def yellow(text): return color(text, "0;33")
-def bold(text): return color(text, "1")
+from core.utils.filter import filter_anchors
+from core.utils.colors import red, green, yellow, bold  # ✅ estilo directo
 
 def set_nested(data, dotted_key, value):
     keys = dotted_key.split(".")

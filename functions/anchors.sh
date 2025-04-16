@@ -312,6 +312,10 @@ anc() {
       ;;
 
 
+   rc)
+    shift
+    python3 "$ANCHOR_ROOT/core/main.py" rc "$@"
+    ;;
 
 
 
