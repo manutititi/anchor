@@ -308,7 +308,7 @@ anc() {
     env)
       shift   # <- mueve los argumentos (quita "env")
       source "${BASH_SOURCE%/*}/env.sh"
-      anc_handle_env "$@"
+      anc_env_apply "$@"
       ;;
 
 

@@ -208,9 +208,9 @@ def run(args):
 
         print(green(f"✅ Environment '{bold(name)}' created at {cyan(meta_path)}"))
 
-        with open(".anc-env", "w") as f:
+        with open(".anc_env", "w") as f:
             f.write(name)
-        print(blue(f"📎 Linked current directory to env '{bold(name)}' via .anc-env"))
+        print(blue(f"📎 Linked current directory to env '{bold(name)}' via .anc_env"))
         return
 
     # --- URL mode ---
@@ -244,7 +244,6 @@ def run(args):
 
 
     # --- Docker mode ---
-    # --- Docker mode ---
     if args.docker:
         name = args.name
         if not name:
@@ -267,6 +266,7 @@ def run(args):
 
         meta = OrderedDict()
         meta["type"] = "docker"
+        meta["name"] = name
         meta["path"] = base_path
         meta["created_at"] = now_iso()
 
@@ -275,6 +275,34 @@ def run(args):
             meta["git"] = git
 
         docker = generate_docker_metadata(base_path)
+
+        # Detectar .env interactivo
+        env_path = os.path.join(base_path, ".env")
+        if os.path.isfile(env_path):
+            print(yellow(".env file detected. What would you like to do?"))
+            print("  1. Include the .env content in the anchor")
+            print("  2. Do NOT include it")
+            print("  3. Create a separate env anchor and link to it")
+            choice = input("Choose [1/2/3]: ").strip()
+
+            if choice == "1":
+                from core.utils.docker_meta import read_file_content, should_encode_file
+                content = read_file_content(env_path, encode=should_encode_file(env_path))
+                if content:
+                    docker.setdefault("files", {})[".env"] = content
+
+            elif choice == "3":
+                default_env_name = f"{name}-env"
+                env_name = input(f"Enter a name for the environment anchor [{default_env_name}]: ").strip() or default_env_name
+                env_vars = parse_env_file(env_path)
+                env_anchor_path = os.path.join(args.anchor_dir, f"{env_name}.json")
+                env_meta = generate_env_metadata(env_name, env_vars)
+                with open(env_anchor_path, "w") as f:
+                    json.dump(env_meta, f, indent=2)
+                print(green(f"✅ Environment anchor created as '{env_anchor_path}'"))
+                docker["env_anchor"] = env_name
+
+
         if docker.get("active"):
             meta["docker"] = docker
         else:
@@ -291,6 +319,7 @@ def run(args):
             print(f"    - {s.get('name')} ({s.get('image')})")
         print(f"  {cyan('Files captured:')} {len(docker.get('files', {}))}")
         return
+
 
 
 

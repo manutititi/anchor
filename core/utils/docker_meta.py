@@ -1,8 +1,7 @@
 import os
 import base64
 import yaml
-
-from core.utils.path import resolve_path
+import hashlib
 
 def read_file_content(path, encode=False):
     try:
@@ -38,7 +37,17 @@ def should_encode_file(path):
     _, ext = os.path.splitext(path)
     return ext.lower() in extensions_base64
 
-def find_related_files(compose_data, root_path):
+def compute_sha256(path):
+    try:
+        sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+    except Exception:
+        return None
+
+def find_related_files(compose_data, root_path, size_limit=1_000_000):
     files = {}
 
     def resolve(p):
@@ -55,20 +64,57 @@ def find_related_files(compose_data, root_path):
                     for f in filenames:
                         absf = os.path.join(dirpath, f)
                         relf = os.path.relpath(absf, root_path)
-                        content = read_file_content(absf, encode=should_encode_file(absf))
-                        if content:
-                            files[relf] = content
+                        size = os.path.getsize(absf)
+                        if size > size_limit:
+                            files[relf] = {
+                                "external": True,
+                                "size": size,
+                                "sha256": compute_sha256(absf),
+                                "ref": None,
+                                "path": f"/files/{os.path.basename(absf)}"
+                            }
+                        else:
+                            content = read_file_content(absf, encode=should_encode_file(absf))
+                            if content:
+                                files[relf] = content
             elif os.path.isfile(full_path):
                 relf = os.path.relpath(full_path, root_path)
+                size = os.path.getsize(full_path)
+                if size > size_limit:
+                    files[relf] = {
+                        "external": True,
+                        "size": size,
+                        "sha256": compute_sha256(full_path),
+                        "ref": None,
+                        "path": f"/files/{os.path.basename(full_path)}"
+                    }
+                else:
+                    content = read_file_content(full_path, encode=should_encode_file(full_path))
+                    if content:
+                        files[relf] = content
+
+    return files
+
+def find_contextual_files(root_path, size_limit=1_000_000):
+    important = ["Dockerfile", "requirements.txt", "server.py", "main.py", "app.py"]
+    files = {}
+
+    for fname in important:
+        full_path = os.path.join(root_path, fname)
+        if os.path.isfile(full_path):
+            size = os.path.getsize(full_path)
+            if size > size_limit:
+                files[fname] = {
+                    "external": True,
+                    "size": size,
+                    "sha256": compute_sha256(full_path),
+                    "ref": None,
+                    "path": f"/files/{fname}"
+                }
+            else:
                 content = read_file_content(full_path, encode=should_encode_file(full_path))
                 if content:
-                    files[relf] = content
-
-    env_file = os.path.join(root_path, ".env")
-    if os.path.isfile(env_file):
-        content = read_file_content(env_file, encode=should_encode_file(env_file))
-        if content:
-            files[".env"] = content
+                    files[fname] = content
 
     return files
 
@@ -95,6 +141,7 @@ def generate_docker_metadata(path):
             })
 
         files = find_related_files(data, path)
+        files.update(find_contextual_files(path))
 
         compose_rel = rel(compose_path, path)
         files[compose_rel] = {
