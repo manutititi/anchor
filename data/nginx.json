@@ -1,7 +1,8 @@
 {
   "type": "docker",
-  "path": "/home/manu/own/testing/clon",
-  "created_at": "2025-04-16T18:22:07.848136Z",
+  "name": "nginx",
+  "path": "/home/manu/own/testing/nginx",
+  "created_at": "2025-04-17T14:57:42.787932Z",
   "docker": {
     "active": true,
     "compose_file": "docker-compose.yml",
@@ -39,12 +40,12 @@
         "content": "<!DOCTYPE html>\n<html lang=\"es\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n  <title>Anchor Contenedor Activo</title>\n  <style>\n    body {\n      margin: 0;\n      font-family: sans-serif;\n      background: linear-gradient(135deg, #1e293b, #0f172a);\n      color: #e2e8f0;\n      display: flex;\n      flex-direction: column;\n      justify-content: center;\n      align-items: center;\n      min-height: 100vh;\n      text-align: center;\n    }\n\n    .icon {\n      width: 80px;\n      height: 80px;\n      margin-bottom: 1rem;\n      animation: pulse 2s infinite;\n    }\n\n    @keyframes pulse {\n      0%, 100% { opacity: 1; transform: scale(1); }\n      50% { opacity: 0.6; transform: scale(1.05); }\n    }\n\n    .badge {\n      background-color: #0ea5e9;\n      color: white;\n      padding: 0.3em 0.7em;\n      border-radius: 0.5em;\n      font-size: 0.9em;\n      margin-top: 1em;\n      display: inline-block;\n    }\n\n    .box {\n      background: #334155;\n      padding: 1em 2em;\n      border-radius: 1em;\n      box-shadow: 0 0 10px #00000050;\n      margin-top: 2em;\n    }\n  </style>\n</head>\n<body>\n\n  <svg class=\"icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#0ea5e9\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n    <path d=\"M12 2v20M5 12h14\" />\n  </svg>\n\n  <h1 style=\"font-size: 2em;\">\ud83c\udf89 \u00a1Contenedor listo!</h1>\n  <p style=\"max-width: 400px;\">El entorno se ha levantado correctamente mediante <strong>Anchor</strong>.</p>\n\n  <div class=\"box\">\n    <p>Comando usado:</p>\n    <code style=\"color: #4ade80; font-family: monospace;\">anc docker demo up</code>\n    <div class=\"badge\">STATUS: OK</div>\n  </div>\n\n</body>\n</html>\n",
         "encoding": "plain"
       },
-      ".env": {
-        "content": "NGINX_NAME=nginx_anc\n",
-        "encoding": "plain"
-      },
       "docker-compose.yml": {
         "content": "services:\n  nginx:\n    image: nginx:latest\n    container_name: ${NGINX_NAME}\n    ports:\n      - \"443:443\"\n    volumes:\n      - ./nginx/certs:/etc/nginx/certs:ro\n      - ./nginx/conf.d:/etc/nginx/conf.d:ro\n      - ./nginx/html:/usr/share/nginx/html:ro\n",
+        "encoding": "plain"
+      },
+      ".env": {
+        "content": "NGINX_NAME=nginx_anc\n",
         "encoding": "plain"
       }
     }
