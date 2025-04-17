@@ -243,7 +243,7 @@ def run(args):
     
 
 
-    # --- Docker mode ---
+        # --- Docker mode ---
     if args.docker:
         name = args.name
         if not name:
@@ -276,7 +276,7 @@ def run(args):
 
         docker = generate_docker_metadata(base_path)
 
-        # Detectar .env interactivo
+        # Detect.env 
         env_path = os.path.join(base_path, ".env")
         if os.path.isfile(env_path):
             print(yellow(".env file detected. What would you like to do?"))
@@ -302,6 +302,32 @@ def run(args):
                 print(green(f"✅ Environment anchor created as '{env_anchor_path}'"))
                 docker["env_anchor"] = env_name
 
+        #  Detect big files
+        big_files = [k for k, v in docker.get("files", {}).items() if v.get("external") and not v.get("path", "").startswith("http")]
+        if big_files:
+            print(yellow("📦 Large external files detected:"))
+            for bf in big_files:
+                print(f"  • {bf}")
+
+            confirm = input("Do you want to upload them now? [y/N] ").strip().lower()
+            if confirm in ("y", "yes"):
+                upload_url = input("Enter base upload URL (e.g. http://localhost:17017/files): ").strip().rstrip("/")
+                for relpath in big_files:
+                    absf = os.path.join(base_path, relpath)
+                    print(f"⬆️  Uploading {relpath} ...", end=" ", flush=True)
+                    try:
+                        import requests
+                        with open(absf, "rb") as f:
+                            response = requests.post(upload_url + "/upload", files={"file": (os.path.basename(relpath), f)})
+                        if response.status_code == 200:
+                            rj = response.json()
+                            docker["files"][relpath]["path"] = upload_url + "/" + os.path.basename(relpath)
+                            docker["files"][relpath]["ref"] = None
+                            print(green("done"))
+                        else:
+                            print(red(f"❌ failed ({response.status_code})"))
+                    except Exception as e:
+                        print(red(f"❌ {e}"))
 
         if docker.get("active"):
             meta["docker"] = docker
@@ -320,7 +346,7 @@ def run(args):
         print(f"  {cyan('Files captured:')} {len(docker.get('files', {}))}")
         return
 
-
+    
 
 
 
