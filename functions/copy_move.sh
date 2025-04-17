@@ -5,73 +5,82 @@ anc_handle_copy_or_move() {
   shift
 
   if [[ "$#" -lt 2 ]]; then
-    echo -e "${YELLOW}Usage:${RESET} anc $cmd <file...> <anchor[/subpath]>${RESET}"
+    echo -e "${YELLOW}Usage:${RESET} anc $cmd <source(s)> <destination>${RESET}"
     return 1
   fi
 
-  local anchor_path="${@: -1}"
+  local destination="${@: -1}"
   local sources=("${@:1:$#-1}")
 
-  for file in "${sources[@]}"; do
-    if [[ ! -f "$file" && ! -d "$file" ]]; then
-      echo -e "${RED}❌ File or directory '$file' does not exist${RESET}"
+  # Detectar si destino es un anchor
+  local dest_anchor="${destination%%/*}"
+  local dest_subpath="${destination#*/}"
+  [[ "$destination" == "$dest_anchor" ]] && dest_subpath=""
+
+  local dest_meta="$ANCHOR_DIR/$dest_anchor.json"
+  local dest_path=""
+  if [[ -f "$dest_meta" ]]; then
+    dest_path=$(jq -r '.path // empty' "$dest_meta")
+    [[ "$dest_path" == ~* ]] && dest_path="${dest_path/#\~/$HOME}"
+    dest_path=$(realpath -m "$dest_path")
+    [[ -n "$dest_subpath" ]] && dest_path="$dest_path/$dest_subpath"
+  else
+    [[ "$destination" == ~* ]] && destination="${destination/#\~/$HOME}"
+    dest_path=$(realpath -m "$destination")
+  fi
+
+  mkdir -p "$dest_path" || {
+    echo -e "${RED}❌ Failed to create destination path: $dest_path${RESET}"
+    return 1
+  }
+
+  for src in "${sources[@]}"; do
+    # Si viene en formato anchor/*
+    if [[ "$src" == */* && -f "$ANCHOR_DIR/${src%%/*}.json" ]]; then
+      local anchor="${src%%/*}"
+      local pattern="${src#*/}"
+      local anchor_path=$(jq -r '.path // empty' "$ANCHOR_DIR/$anchor.json")
+      [[ "$anchor_path" == ~* ]] && anchor_path="${anchor_path/#\~/$HOME}"
+      anchor_path=$(realpath -m "$anchor_path")
+
+      shopt -s nullglob
+      local matched_files=("$anchor_path"/$pattern)
+      shopt -u nullglob
+
+      if [[ "${#matched_files[@]}" -eq 0 ]]; then
+        echo -e "${YELLOW}⚠️ No files matched pattern '$pattern' in anchor '$anchor'${RESET}"
+        continue
+      fi
+
+      for matched in "${matched_files[@]}"; do
+        if [[ "$cmd" == "mv" ]]; then
+          mv "$matched" "$dest_path/" && echo -e "${GREEN}✅ Moved '$matched' to '$dest_path/'${RESET}"
+        else
+          rsync -a --progress "$matched" "$dest_path/" && echo -e "${GREEN}✅ Copied '$matched' to '$dest_path/'${RESET}"
+        fi
+      done
+      continue
+    fi
+
+    # Origen es un anchor completo
+    if [[ -f "$ANCHOR_DIR/$src.json" ]]; then
+      src_path=$(jq -r '.path // empty' "$ANCHOR_DIR/$src.json")
+      [[ "$src_path" == ~* ]] && src_path="${src_path/#\~/$HOME}"
+      src_path=$(realpath -m "$src_path")
+    else
+      [[ "$src" == ~* ]] && src="${src/#\~/$HOME}"
+      src_path=$(realpath -m "$src")
+    fi
+
+    if [[ ! -e "$src_path" ]]; then
+      echo -e "${RED}❌ Source '$src' does not exist${RESET}"
       return 1
+    fi
+
+    if [[ "$cmd" == "mv" ]]; then
+      mv "$src_path" "$dest_path/" && echo -e "${GREEN}✅ Moved '$src_path' to '$dest_path/'${RESET}"
+    else
+      rsync -a --progress "$src_path" "$dest_path/" && echo -e "${GREEN}✅ Copied '$src_path' to '$dest_path/'${RESET}"
     fi
   done
-
-  local anchor_name subpath
-  anchor_name="${anchor_path%%/*}"
-  subpath="${anchor_path#*/}"
-  [[ "$anchor_path" == "$anchor_name" ]] && subpath=""
-
-  local anchor_dir="$ANCHOR_DIR"
-  local meta_file="$anchor_dir/$anchor_name"
-
-  if [[ ! -f "$meta_file" ]]; then
-    echo -e "${RED}⚠️ Anchor '$anchor_name' not found${RESET}"
-    return 1
-  fi
-
-  local path type
-  path=$(jq -r '.path // empty' "$meta_file")
-  type=$(jq -r '.type // "local"' "$meta_file")
-
-  if [[ -z "$path" ]]; then
-    echo -e "${RED}⚠️ Anchor '$anchor_name' has no path${RESET}"
-    return 1
-  fi
-
-  if [[ "$type" == "remote" ]]; then
-    if [[ "$cmd" == "mv" ]]; then
-      echo -e "${RED}❌ 'mv' to remote anchors is not allowed. Use 'cp' instead.${RESET}"
-      return 1
-    fi
-
-    local proto_removed="${path#ssh://}"
-    local user_host="${proto_removed%%:*}"
-    local remote_path="${proto_removed#*:}"
-    [[ -n "$subpath" ]] && remote_path="$remote_path/$subpath"
-
-    echo -e "${BLUE}📡 Sending to remote anchor '$anchor_name': $user_host:$remote_path${RESET}"
-    ssh "$user_host" "mkdir -p '$remote_path'" || {
-      echo -e "${RED}❌ Failed to create remote directory '$remote_path' on $user_host${RESET}"
-      return 1
-    }
-
-    scp -r "${sources[@]}" "$user_host:$remote_path"
-  else
-    local dest="$path"
-    [[ -n "$subpath" ]] && dest="$dest/$subpath"
-    mkdir -p "$dest"
-
-    for file in "${sources[@]}"; do
-      local final_path="$dest/$(basename "$file")"
-      if [[ "$cmd" == "mv" ]]; then
-        mv "$file" "$final_path" && echo -e "${GREEN}✅ Moved '$file' to '$final_path'${RESET}"
-      else
-        cp -r "$file" "$final_path" && echo -e "${GREEN}✅ Copied '$file' to '$final_path'${RESET}"
-      fi
-    done
-  fi
 }
-

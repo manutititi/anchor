@@ -45,11 +45,11 @@ anc_handle_help() {
   echo -e "  anc url -a <anchor> [method] [path] [params] [status]     - ➕ Add route"
   echo -e "  anc url -d <anchor>                                       - 🗑️  Delete route"
   echo -e "  anc url -t <anchor>                                       - 🧪 Test defined routes"
-  echo -e "  anc url -c <anchor> <method> [path] [data|file]           - 🌐 Call API"
+  echo -e "  anc url -c <anchor> <method> [path] [data|file]           - 🌐 Call API # development"
   echo -e "    Supports JSON, file uploads (-F), env token injection"
   echo
 
-  echo -e "${CYAN}🌐 Server Sync:${RESET}"
+  echo -e "${CYAN}🌐 Server Sync:${RESET} # development"
   echo -e "  anc pull <name>                      - ⬇️  Download anchor from server"
   echo -e "  anc pull --all                       - ⬇️  Download all remote anchors"
   echo -e "  anc pull -f key=value                - ⬇️  Filter and download"
@@ -59,7 +59,7 @@ anc_handle_help() {
   echo
 
   echo -e "${CYAN}📦 Environments:${RESET}"
-  echo -e "  anc env apply <name>                - 📥 Apply env vars from anchor"
+  echo -e "  anc env <name>                - 📥 Apply env vars from anchor and link it"
   echo
 
   echo -e "${CYAN}📤 Export:${RESET}"
