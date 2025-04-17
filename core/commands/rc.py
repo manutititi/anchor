@@ -77,9 +77,12 @@ def recreate_from_anchor(anchor_name, target_path):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
 
         if file_data.get("external"):
-            url = file_data.get("url")
-            if not url and file_data.get("ref") and file_data.get("path"):
+            url = None
+            if file_data.get("ref") and file_data.get("path"):
                 url = resolve_url_from_ref(file_data["ref"], file_data["path"])
+            elif file_data.get("path", "").startswith("http://") or file_data.get("path", "").startswith("https://"):
+                url = file_data["path"]
+
             if url:
                 success = download_file(url, dest)
                 if not success:
@@ -97,7 +100,7 @@ def recreate_from_anchor(anchor_name, target_path):
                 f.write(env_anchor.strip() + "\n")
             print(green(f"🔗 Environment anchor reference created at {cyan(env_ref_path)}"))
         except Exception as e:
-            print(red(f"❌ Failed to write .env_anchor: {e}"))
+            print(red(f"❌ Failed to write .anc_env: {e}"))
 
     print(green(f"✅ Files restored from anchor '{bold(anchor_name)}' to {cyan(target_path)}"))
 
