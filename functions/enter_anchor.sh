@@ -55,14 +55,14 @@ anc_enter_anchor() {
     return $?
   fi
 
-  # 🧪 Aplicar entorno si es tipo env
+  # Aplicar entorno si es tipo env
   if [[ "$type" == "env" ]]; then
     echo -e "${CYAN}🧪 Detected environment anchor '${BOLD}$name${RESET}${CYAN}', applying...${RESET}"
-    anc_env_apply "$name"
+    anc_env_apply "$name" --no-link
     return $?
   fi
 
-  # 🧭 Leer path
+  # Leer path
   local raw_path
   raw_path=$(jq -r '.path // empty' "$meta_file")
   local path="$raw_path"

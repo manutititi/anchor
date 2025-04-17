@@ -3,10 +3,32 @@
 ANCHOR_DIR="${ANCHOR_DIR:-"$ANCHOR_ROOT/data"}"
 
 anc_env_apply() {
-  local env_name="$1"
+  local env_name=""
+  local no_link=false
+
+  # Procesar argumentos
+  for arg in "$@"; do
+    case "$arg" in
+      --no-link)
+        no_link=true
+        ;;
+      *)
+        env_name="$arg"
+        ;;
+    esac
+  done
+
+  # Si no se pasa nombre, intentar leer .anc_env
   if [[ -z "$env_name" ]]; then
-    echo "Usage: anc env apply <name>"
-    return 1
+    if [[ -f .anc_env ]]; then
+      env_name=$(<.anc_env)
+      env_name="${env_name//[$'\t\r\n ']}"
+      echo "📄 Found .anc_env → Using environment: $env_name"
+    else
+      echo "❌ Usage: anc env <name> [--no-link]"
+      echo "   Or ensure .anc_env exists in current directory"
+      return 1
+    fi
   fi
 
   local env_file="$ANCHOR_DIR/$env_name.json"
@@ -22,9 +44,13 @@ anc_env_apply() {
     return 1
   fi
 
+  if ! $no_link; then
+    echo "$env_name" > .anc_env
+    echo "📎 Linked current directory to env '$env_name' via .anc_env"
+  fi
+
   echo "📦 Applying environment: $env_name"
 
-  # Exportar variables
   local vars_keys
   vars_keys=$(jq -r '.vars | keys[]?' "$env_file")
   for key in $vars_keys; do
@@ -39,14 +65,12 @@ anc_env_apply() {
     fi
   done
 
-  # Ejecutar scripts preload
   anc_run_scripts "$env_file" "preload" || return 1
-
-  # Ejecutar scripts postload
   anc_run_scripts "$env_file" "postload" || return 1
 
   echo "✅ Environment '$env_name' applied."
 }
+
 
 anc_run_scripts() {
   local env_file="$1"
