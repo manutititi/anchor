@@ -6,46 +6,79 @@ from datetime import datetime, timezone
 import shutil
 import json
 import re
+import os
 
 app = FastAPI()
 ANCHORS_DIR = Path("anchors")
+EXTERNAL_DIR = Path("external_files")
 ANCHORS_DIR.mkdir(parents=True, exist_ok=True)
+EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
 
+# --- Filtros compatibles con la app ---
 
-def match_nested(data, key, expected_value):
+def get_nested(d, key):
     parts = key.split(".")
-    current = data
+    for part in parts:
+        if not isinstance(d, dict) or part not in d:
+            return None
+        d = d[part]
+    return d
 
-    for i, part in enumerate(parts):
-        if isinstance(current, list):
-            rest = ".".join(parts[i:])
-            return any(match_nested(item, rest, expected_value) for item in current)
+def normalize_value(value):
+    if isinstance(value, str):
+        v = value.lower()
+        if v == "true":
+            return True
+        if v == "false":
+            return False
+        if v.isdigit():
+            return int(v)
+    return value
+
+def expr_to_lambda(expr_str):
+    expr_str = expr_str.replace(" AND ", " and ").replace(" OR ", " or ")
+    pattern = re.compile(r'([a-zA-Z0-9_.]+)\s*(!=|=|~|!~)\s*("[^"]+"|[^\s()]+)')
+    var_map = {}
+
+    for i, (key, op, val) in enumerate(pattern.findall(expr_str)):
+        var_name = f"_v{i}"
+        full_expr = f"{key}{op}{val}"
+        expr_str = expr_str.replace(full_expr, var_name)
+        var_map[var_name] = (key.strip(), op.strip(), normalize_value(val.strip('"')))
+
+    def matcher(data):
+        env = {}
+        for var_name, (key, op, expected) in var_map.items():
+            actual = get_nested(data, key)
+            if op == "=":
+                env[var_name] = (actual == expected)
+            elif op == "!=":
+                env[var_name] = (actual != expected)
+            elif op == "~":
+                env[var_name] = expected in str(actual) if actual is not None else False
+            elif op == "!~":
+                env[var_name] = expected not in str(actual) if actual is not None else True
         try:
-            current = current[part]
-        except (KeyError, TypeError):
+            return eval(expr_str, {}, env)
+        except Exception:
             return False
 
-    return str(current) == expected_value
+    return matcher
 
+def matches_filter(data: dict, filter_str: str) -> bool:
+    if not filter_str:
+        return True
+    try:
+        matcher = expr_to_lambda(filter_str)
+        return matcher(data)
+    except Exception:
+        return False
 
-def evaluate_filter_expression(data, expression: str) -> bool:
-    or_clauses = [clause.strip() for clause in re.split(r'\bOR\b', expression, flags=re.IGNORECASE)]
-
-    for or_clause in or_clauses:
-        and_clauses = [cond.strip() for cond in re.split(r'\bAND\b', or_clause, flags=re.IGNORECASE)]
-        if all(
-            "=" in cond and match_nested(data, *cond.split("=", 1))
-            for cond in and_clauses
-        ):
-            return True
-
-    return False
-
+# --- Endpoints ---
 
 @app.get("/anchors")
 def list_anchors(filter: List[str] = Query(default=[])):
     anchors = []
-
     for file in ANCHORS_DIR.glob("*.json"):
         try:
             with open(file) as f:
@@ -53,7 +86,7 @@ def list_anchors(filter: List[str] = Query(default=[])):
 
             matched = True
             for f_expr in filter:
-                if not evaluate_filter_expression(data, f_expr):
+                if not matches_filter(data, f_expr):
                     matched = False
                     break
 
@@ -62,7 +95,6 @@ def list_anchors(filter: List[str] = Query(default=[])):
 
         except Exception:
             continue
-
     return anchors
 
 
@@ -82,8 +114,9 @@ def upload_anchor(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
     data["last_updated"] = datetime.now(timezone.utc).isoformat()
+    if "type" not in data:
+        raise HTTPException(status_code=400, detail="Anchor missing required 'type' field")
 
-    # Obtener nombre lógico del anchor
     anchor_name = data.get("name") or data.get("id") or file.filename.rsplit(".", 1)[0]
     if not re.match(r"^[a-zA-Z0-9_\-]+$", anchor_name):
         raise HTTPException(status_code=400, detail="Invalid or missing anchor name")
@@ -101,8 +134,6 @@ def upload_anchor(file: UploadFile = File(...)):
         "anchor_name": anchor_name,
         "last_updated": data["last_updated"]
     }
-
-
 
 @app.delete("/anchors/{name}")
 def delete_anchor(name: str):
@@ -124,6 +155,29 @@ def get_anchor_raw(name: str):
             return json.load(f)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Invalid JSON or read error: {e}")
+
+
+@app.get("/files/{filename}")
+def download_file(filename: str):
+    file_path = EXTERNAL_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
+
+
+@app.post("/files/upload")
+def upload_external_file(file: UploadFile = File(...)):
+    dest_path = EXTERNAL_DIR / file.filename
+    try:
+        with open(dest_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        return {
+            "status": "ok",
+            "filename": file.filename,
+            "path": f"/files/{file.filename}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
