@@ -83,7 +83,12 @@ def upload_anchor(file: UploadFile = File(...)):
 
     data["last_updated"] = datetime.now(timezone.utc).isoformat()
 
-    dst = ANCHORS_DIR / file.filename
+    # Obtener nombre lógico del anchor
+    anchor_name = data.get("name") or data.get("id") or file.filename.rsplit(".", 1)[0]
+    if not re.match(r"^[a-zA-Z0-9_\-]+$", anchor_name):
+        raise HTTPException(status_code=400, detail="Invalid or missing anchor name")
+
+    dst = ANCHORS_DIR / f"{anchor_name}.json"
     try:
         with open(dst, "w") as f:
             json.dump(data, f, indent=2)
@@ -93,8 +98,10 @@ def upload_anchor(file: UploadFile = File(...)):
     return {
         "status": "ok",
         "saved_as": str(dst),
+        "anchor_name": anchor_name,
         "last_updated": data["last_updated"]
     }
+
 
 
 @app.delete("/anchors/{name}")
