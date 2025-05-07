@@ -11,6 +11,8 @@ from commands import ls, meta, url, rc
 from commands import set as set_cmd
 from core.commands import docker as docker_cmd
 from commands import delete
+from commands import ldap as ldap_cmd
+
 
 def main():
     parser = argparse.ArgumentParser(prog="anc", description="Anchor CLI")
@@ -29,11 +31,19 @@ def main():
     set_parser.add_argument("name", nargs="?", help="Anchor name or path")
     set_parser.add_argument("--url", action="store_true", help="Create a URL-type anchor")
     set_parser.add_argument("--env", action="store_true", help="Create an environment anchor")
-    set_parser.add_argument("base_url", nargs="?", help="Base URL or .env file depending on context")
+    set_parser.add_argument("--ldap", action="store_true", help="Create an LDAP anchor")
     set_parser.add_argument("--docker", action="store_true", help="Create a Docker-type anchor")
     set_parser.add_argument("--rel", action="store_true", help="Store path relative to home (~)")
     set_parser.add_argument("--server", nargs="?", const="http://localhost:17017", help="Set server URL (default: localhost:17017)")
+    set_parser.add_argument("base_url", nargs="?", help="Base URL or .env file depending on context")
+
+        # Optionals LDAP
+    set_parser.add_argument("--base-dn", help="Base DN for LDAP anchor")
+    set_parser.add_argument("--bind-dn", help="Bind DN for LDAP admin")
+    set_parser.add_argument("--bind-password", help="Bind password for LDAP")
+
     set_parser.set_defaults(func=set_cmd.run)
+
 
     # del
     del_parser = subparsers.add_parser("del", help="Delete anchors")
@@ -84,6 +94,19 @@ def main():
     docker_parser = subparsers.add_parser("docker", help="Manage docker-based anchors")
     docker_parser.add_argument("-r", "--restore", nargs="+", help="Restore a docker anchor into a directory")
     docker_parser.set_defaults(func=docker_cmd.run)
+
+
+
+
+    # ldap
+    ldap_parser = subparsers.add_parser("ldap", help="LDAP operations")
+    ldap_parser.add_argument("anchor", help="Anchor name (must be type 'ldap')")
+    ldap_parser.add_argument("action", help="Action to perform (auth, get-user, etc.)")
+    ldap_parser.add_argument("username", nargs="?", help="LDAP username")
+    ldap_parser.add_argument("password", nargs="?", help="LDAP password")
+    ldap_parser.add_argument("--json", action="store_true", help="Output result in JSON format")
+    ldap_parser.add_argument("--class", dest="cls", help="LDAP objectClass to filter (e.g. inetOrgPerson)")
+    ldap_parser.set_defaults(func=ldap_cmd.run)
 
 
 

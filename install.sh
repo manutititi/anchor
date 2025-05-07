@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 set -e
 
@@ -11,10 +10,7 @@ RED="\033[0;31m"
 RESET="\033[0m"
 CYAN="\033[1;36m"
 
-
-
 echo -e "📦 Installing Anchor system to: ${GREEN}$ANCHOR_HOME${RESET}"
-
 
 # yq
 if ! command -v yq >/dev/null 2>&1; then
@@ -46,7 +42,6 @@ else
   echo -e "${GREEN}✅ 'jq' already installed.${RESET}"
 fi
 
-
 mkdir -p "$ANCHOR_HOME"
 mkdir -p "$ANCHOR_HOME/functions"
 mkdir -p "$ANCHOR_HOME/completions"
@@ -54,7 +49,6 @@ mkdir -p "$ANCHOR_HOME/data"
 mkdir -p "$ANCHOR_HOME/scripts"
 mkdir -p "$ANCHOR_HOME/server"
 mkdir -p "$ANCHOR_HOME/core"
-
 
 cp -r "$SRC_DIR/functions/"*.sh "$ANCHOR_HOME/functions/"
 cp -r "$SRC_DIR/completions/"* "$ANCHOR_HOME/completions/"
@@ -66,7 +60,6 @@ if compgen -G "$SRC_DIR/data/*.json" > /dev/null; then
   cp "$SRC_DIR/data/"*.json "$ANCHOR_HOME/data/"
   echo -e "${GREEN}✅ Copied anchor examples to ~/.anchors/data/${RESET}"
 fi
-
 
 SHELL_CONFIGS=("$HOME/.bashrc" "$HOME/.zshrc")
 
@@ -87,8 +80,32 @@ for CONFIG in "${SHELL_CONFIGS[@]}"; do
   fi
 done
 
+# Python virtual environment setup
+echo -e "\n🐍 Setting up Python virtual environment..."
+
+VENV_DIR="$ANCHOR_HOME/venv"
+REQ_FILE="$SRC_DIR/requirements.txt"
+
+# Generate default requirements.txt if missing
+if [[ ! -f "$REQ_FILE" ]]; then
+  cat > "$REQ_FILE" <<EOF
+ldap3
+PyYAML
+requests
+EOF
+  echo -e "${YELLOW}📦 Default requirements.txt created${RESET}"
+fi
+
+python3 -m venv "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip >/dev/null
+echo -e "${CYAN}📥 Installing Python dependencies...${RESET}"
+pip install -r "$REQ_FILE"
+
+echo -e "${GREEN}✅ Python environment ready in $VENV_DIR${RESET}"
 
 echo -e "\n🎉 ${GREEN}Installation complete!${RESET}"
 echo "🔁 Reload your shell or run: source ~/.bashrc"
 echo -e "📦 Example anchor installed: ${CYAN}anc.json${RESET}"
 echo -e "🚀 Try: ${GREEN}anc ls${RESET}  then ${CYAN}anc anc${RESET} to jump into it."
+

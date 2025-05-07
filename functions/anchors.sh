@@ -4,7 +4,7 @@ export ANCHOR_ROOT="${ANCHOR_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && 
 export ANCHOR_DIR="${ANCHOR_DIR:-"$ANCHOR_ROOT/data"}"
 export ENV_DIR="${ENV_DIR:-"$ANCHOR_ROOT/envs"}"
 export URL_DIR="${URL_DIR:-"$ANCHOR_ROOT/urls"}"
-
+PYTHON_BIN="$ANCHOR_ROOT/venv/bin/python"
 
 
 
@@ -29,7 +29,7 @@ anc() {
         
     set)
       shift
-      python3 "$ANCHOR_ROOT/core/main.py" set "$@"
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" set "$@"
       ;;
 
 
@@ -73,7 +73,7 @@ anc() {
 
     meta)
       shift
-      python3 "$ANCHOR_ROOT/core/main.py" meta "$@"
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" meta "$@"
       ;;
 
     
@@ -81,7 +81,7 @@ anc() {
 
     ls)
       shift
-      python3 "$ANCHOR_ROOT/core/main.py" ls "$@"
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" ls "$@"
       ;;
 
     
@@ -108,7 +108,7 @@ anc() {
         
     del)
       shift
-      python3 "$ANCHOR_ROOT/core/main.py" del "$@"
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" del "$@"
       ;;
 
 
@@ -151,7 +151,7 @@ anc() {
 
     url)
       shift
-      python3 "$ANCHOR_ROOT/core/main.py" url "$@"
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" url "$@"
       ;;
 
 
@@ -286,7 +286,10 @@ anc() {
       anc_server "${@:2}"
       ;;
 
-
+    ldap)
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" ldap "$@"
+      ;;
 
     
     api)
@@ -314,7 +317,7 @@ anc() {
 
    rc)
     shift
-    python3 "$ANCHOR_ROOT/core/main.py" rc "$@"
+    "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" rc "$@"
     ;;
 
 

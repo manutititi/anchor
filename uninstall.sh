@@ -6,6 +6,7 @@ RESET="\033[0m"
 RED="\033[0;31m"
 GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
+BLUE="\033[0;34m"
 
 echo -e "${YELLOW}🧹 Uninstalling Anchor from $ANCHOR_HOME...${RESET}"
 
@@ -29,6 +30,8 @@ clean_shell_config() {
   sed -i '/source "\$f"/d' "$config"
   sed -i '/source "\$ANCHOR_HOME\/completions\/anc"/d' "$config"
   sed -i '/PATH="\$ANCHOR_HOME\/core:\$PATH"/d' "$config"
+  sed -i '/source "\$ANCHOR_HOME\/venv\/bin\/activate"/d' "$config"
+  sed -i '/source "\$HOME\/.anchors\/venv\/bin\/activate"/d' "$config"
 }
 
 clean_shell_config "$HOME/.bashrc"
