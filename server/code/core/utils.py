@@ -11,7 +11,6 @@ def get_nested(d, key):
         d = d[part]
     return d
 
-
 def normalize_value(value):
     """
     Convierte strings comunes a tipos útiles: bool, int, etc.
@@ -25,7 +24,6 @@ def normalize_value(value):
         if v.isdigit():
             return int(v)
     return value
-
 
 def expr_to_lambda(expr_str):
     """
@@ -47,20 +45,31 @@ def expr_to_lambda(expr_str):
         for var_name, (key, op, expected) in var_map.items():
             actual = get_nested(data, key)
             if op == "=":
-                env[var_name] = (actual == expected)
+                if isinstance(actual, list):
+                    env[var_name] = expected in actual
+                else:
+                    env[var_name] = (actual == expected)
             elif op == "!=":
-                env[var_name] = (actual != expected)
+                if isinstance(actual, list):
+                    env[var_name] = expected not in actual
+                else:
+                    env[var_name] = (actual != expected)
             elif op == "~":
-                env[var_name] = expected in str(actual) if actual is not None else False
+                if isinstance(actual, list):
+                    env[var_name] = any(expected in str(item) for item in actual)
+                else:
+                    env[var_name] = expected in str(actual) if actual is not None else False
             elif op == "!~":
-                env[var_name] = expected not in str(actual) if actual is not None else True
+                if isinstance(actual, list):
+                    env[var_name] = all(expected not in str(item) for item in actual)
+                else:
+                    env[var_name] = expected not in str(actual) if actual is not None else True
         try:
             return eval(expr_str, {}, env)
         except Exception:
             return False
 
     return matcher
-
 
 def matches_filter(data: dict, filter_str: str) -> bool:
     """

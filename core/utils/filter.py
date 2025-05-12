@@ -3,15 +3,13 @@ import json
 import os
 import re
 
-
 def get_nested(d, key):
     parts = key.split(".")
     for part in parts:
         if not isinstance(d, dict) or part not in d:
             return None
-        d = d[part]
+        d = part = d[part]
     return d
-
 
 def normalize_value(value):
     """Convierte 'true' → True, '123' → 123, etc."""
@@ -24,7 +22,6 @@ def normalize_value(value):
         if v.isdigit():
             return int(v)
     return value
-
 
 def expr_to_lambda(expr_str):
     """
@@ -50,9 +47,15 @@ def expr_to_lambda(expr_str):
         for var_name, (key, op, expected) in var_map.items():
             actual = get_nested(data, key)
             if op == "=":
-                env[var_name] = (actual == expected)
+                if isinstance(actual, list):
+                    env[var_name] = expected in actual
+                else:
+                    env[var_name] = (actual == expected)
             elif op == "!=":
-                env[var_name] = (actual != expected)
+                if isinstance(actual, list):
+                    env[var_name] = expected not in actual
+                else:
+                    env[var_name] = (actual != expected)
             elif op == "~":
                 env[var_name] = expected in str(actual) if actual is not None else False
             elif op == "!~":
@@ -64,7 +67,6 @@ def expr_to_lambda(expr_str):
 
     return matcher
 
-
 def matches_filter(data: dict, filter_str: str) -> bool:
     if not filter_str:
         return True
@@ -73,7 +75,6 @@ def matches_filter(data: dict, filter_str: str) -> bool:
         return matcher(data)
     except Exception:
         return False
-
 
 def load_all_anchors(anchor_dir: str) -> dict:
     anchors = {}
@@ -87,12 +88,10 @@ def load_all_anchors(anchor_dir: str) -> dict:
                 continue
     return anchors
 
-
 def filter_anchors(filter_str=None) -> dict:
     anchor_dir = os.environ.get("ANCHOR_DIR", "./data")
     anchors = load_all_anchors(anchor_dir)
     return {name: data for name, data in anchors.items() if matches_filter(data, filter_str)}
-
 
 # CLI fallback
 if __name__ == "__main__":
