@@ -1,6 +1,7 @@
 {
   "type": "docker",
   "name": "nginx",
+  "groups": ["infra", "devops"],
   "path": "/home/manu/own/testing/nginx",
   "created_at": "2025-04-17T14:57:42.787932Z",
   "docker": {
