@@ -1,50 +1,56 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from pathlib import Path
-import json
+from pymongo.collection import Collection
+from core.db_collection import get_mongo_collection
 
 router = APIRouter()
 
-# Ruta absoluta al directorio de anchors
-ANCHORS_DIR = Path(__file__).resolve().parent.parent.parent / "anchors"
-ANCHORS_DIR.mkdir(parents=True, exist_ok=True)  # Asegura que exista
-
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
-    print("📁 Buscando anchors en:", ANCHORS_DIR)
-    print("📄 Archivos encontrados:", list(ANCHORS_DIR.glob("*.json")))
+def dashboard(request: Request):
+    collection: Collection = get_mongo_collection("anchors")
+
+    projection = {
+        "_id": 0,
+        "name": 1,
+        "type": 1,
+        "env": 1,
+        "project": 1,
+        "note": 1,
+        "path": 1,
+        "endpoint": 1,
+        "last_updated": 1,
+        "groups": 1,
+        "external": 1
+    }
+
+    anchors = list(collection.find({}, projection))
 
     rows = []
+    for anchor in anchors:
+        name = anchor.get("name", "")
+        type_ = anchor.get("type", "")
+        env = anchor.get("env", "")
+        project = anchor.get("project", "")
+        note = anchor.get("note", "")
+        updated = anchor.get("last_updated", "")
+        groups = ", ".join(anchor.get("groups", [])) if anchor.get("groups") else "all"
+        path_or_url = anchor.get("path") or anchor.get("endpoint", {}).get("base_url", "")
+        external = "✅" if anchor.get("external") else ""
 
-    for file in ANCHORS_DIR.glob("*.json"):
-        try:
-            with open(file) as f:
-                data = json.load(f)
-
-            name = file.stem
-            type_ = data.get("type", "")
-            note = data.get("note", "")
-            env = data.get("env", "")
-            project = data.get("project", "")
-            updated = data.get("last_updated", "")
-            path_or_url = data.get("path") or data.get("endpoint", {}).get("base_url", "")
-
-            row = f"""
-                <tr>
-                    <td><a href="/anchors/{name}/raw" target="_blank">{name}</a></td>
-                    <td>{type_}</td>
-                    <td>{env}</td>
-                    <td>{project}</td>
-                    <td>{note}</td>
-                    <td>{path_or_url}</td>
-                    <td>{updated}</td>
-                </tr>
-            """
-            rows.append(row)
-
-        except Exception as e:
-            print(f" Error al leer {file.name}: {e}")
-            continue
+        row = f"""
+            <tr>
+                <td><a href="/anchors/{name}/raw" target="_blank">{name}</a></td>
+                <td>{type_}</td>
+                <td>{env}</td>
+                <td>{project}</td>
+                <td>{note}</td>
+                <td>{groups}</td>
+                <td>{external}</td>
+                <td>{path_or_url}</td>
+                <td>{updated}</td>
+            </tr>
+        """
+        rows.append(row)
 
     html = f"""
     <html>
@@ -69,6 +75,8 @@ def dashboard():
                     <th>Env</th>
                     <th>Project</th>
                     <th>Note</th>
+                    <th>Groups</th>
+                    <th>External</th>
                     <th>Path / URL</th>
                     <th>Last Updated</th>
                 </tr>

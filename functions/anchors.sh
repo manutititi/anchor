@@ -282,8 +282,8 @@ anc() {
       ;; 
 
     server)
-      source "${BASH_SOURCE%/*}/server.sh"
-      anc_server "${@:2}"
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" server "$@"
       ;;
 
     ldap)

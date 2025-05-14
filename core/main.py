@@ -12,6 +12,8 @@ from commands import set as set_cmd
 from core.commands import docker as docker_cmd
 from commands import delete
 from commands import ldap as ldap_cmd
+from commands import server as server_cmd  
+
 
 
 def main():
@@ -107,6 +109,15 @@ def main():
     ldap_parser.add_argument("--json", action="store_true", help="Output result in JSON format")
     ldap_parser.add_argument("--class", dest="cls", help="LDAP objectClass to filter (e.g. inetOrgPerson)")
     ldap_parser.set_defaults(func=ldap_cmd.run)
+
+
+    # server
+    server_parser = subparsers.add_parser("server", help="Interact with remote server")
+    server_parser.add_argument("subcommand", choices=["auth", "ls"], help="Subcommand to run")
+    server_parser.add_argument("-u", "--username", help="LDAP username")
+    server_parser.add_argument("-p", "--password", help="LDAP password")
+    server_parser.set_defaults(func=lambda args: server_cmd.run(args.subcommand, args))
+
 
 
 

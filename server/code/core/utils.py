@@ -1,3 +1,6 @@
+from zoneinfo import ZoneInfo
+import os
+from datetime import datetime
 import re
 
 def get_nested(d, key):
@@ -82,3 +85,13 @@ def matches_filter(data: dict, filter_str: str) -> bool:
         return matcher(data)
     except Exception:
         return False
+
+
+
+
+
+
+TIMEZONE = os.getenv("TZ", "Europe/Madrid")
+
+def now_tz():
+    return datetime.now(ZoneInfo(TIMEZONE)).isoformat()

@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends
-from endpoints import anchors, users, files, dashboard, admin
+from endpoints import anchors, users, files, dashboard, admin, dbsync
 from auth.session import AuthMiddleware, get_current_user, require_group
 
 
@@ -12,6 +12,7 @@ app.include_router(anchors.router, prefix="/anchors")
 app.include_router(files.router, prefix="/files")
 app.include_router(dashboard.router)
 app.include_router(users.router) 
+app.include_router(dbsync.router)
 
 # Punto de salud opcional
 @app.get("/")
