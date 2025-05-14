@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from code.core.utils import now_tz
+from code.core.utils import now_tz, now_tz_ss
 import os
 
 # Clave secreta JWT (usar una variable de entorno en producción)
@@ -13,7 +13,7 @@ TOKEN_EXPIRE_MINUTES = 60
 
 
 def create_token(username: str, groups: list[str]) -> str:
-    expire = now_tz() + timedelta(minutes=TOKEN_EXPIRE_MINUTES)
+    expire = now_tz_ss() + timedelta(minutes=TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": username,
         "groups": groups,

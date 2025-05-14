@@ -2,6 +2,7 @@ from zoneinfo import ZoneInfo
 import os
 from datetime import datetime
 import re
+import pytz
 
 def get_nested(d, key):
     """
@@ -95,3 +96,10 @@ TIMEZONE = os.getenv("TZ", "Europe/Madrid")
 
 def now_tz():
     return datetime.now(ZoneInfo(TIMEZONE)).isoformat()
+
+
+
+
+def now_tz_ss():
+    tz_name = os.getenv("TZ", "Europe/Madrid")
+    return datetime.now(pytz.timezone(tz_name))

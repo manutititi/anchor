@@ -6,7 +6,7 @@ from core.utils.colors import red, green, blue, yellow, gray
 def run(args):
     info_path = Path.home() / ".anchors" / "server" / "info.json"
     if not info_path.exists():
-        print(red("No remote server configured. Use: anc server name <url>"))
+        print(red("No remote server configured. Use: anc server url <url>"))
         return
 
     with open(info_path) as f:

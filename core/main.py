@@ -113,10 +113,12 @@ def main():
 
     # server
     server_parser = subparsers.add_parser("server", help="Interact with remote server")
-    server_parser.add_argument("subcommand", choices=["auth", "ls"], help="Subcommand to run")
+    server_parser.add_argument("subcommand", choices=["auth", "ls", "url"], help="Subcommand to run")
     server_parser.add_argument("-u", "--username", help="LDAP username")
     server_parser.add_argument("-p", "--password", help="LDAP password")
+    server_parser.add_argument("value", nargs="?", help="Value for the subcommand (e.g., server URL)")
     server_parser.set_defaults(func=lambda args: server_cmd.run(args.subcommand, args))
+
 
 
 
