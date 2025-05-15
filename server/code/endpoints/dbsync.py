@@ -1,80 +1,36 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
-from pydantic import RootModel
-from typing import Any
-from code.core.db_collection import get_mongo_collection
 from code.auth.session import get_current_groups, get_current_user
-from collections import OrderedDict
-from code.core.utils import now_tz
-import json
-import os
-
-
-
-
-
+from code.core.ancdb import ancDB
+from core.filter import query_collection
 
 router = APIRouter()
+db = ancDB()
 
+def is_visible(anchor: dict, user_groups: list[str]) -> bool:
+    if "admins" in user_groups:
+        return True  
+    groups = anchor.get("groups", [])
+    return not groups or "all" in groups or any(g in user_groups for g in groups)
+
+# POST /db/upload/<name>
 @router.post("/db/upload/{filename}", tags=["db"])
 async def upload_anchor_to_db(
     filename: str,
     request: Request,
-    user: str = Depends(get_current_user)  # token needed
+    user: str = Depends(get_current_user)
 ):
     data = await request.json()
+    result = db.upload_anchor(filename, data, user)
+    return JSONResponse(result)
 
-    # Create name if not define
-    if "name" not in data or not data["name"]:
-        name = os.path.splitext(filename)[0]
-        data["name"] = name
-    else:
-        name = data["name"]
-
-    collection = get_mongo_collection("anchors")
-    existing = collection.find_one({"name": name})
-
-    now = now_tz()
-
-    # if new
-    if not existing:
-        data["created_at"] = now
-        data["created_by"] = user
-
-    # Salways update
-    data["last_updated"] = now
-    data["updated_by"] = user
-
-    # Reorder
-    reordered = {
-        k: data[k]
-        for k in ["type", "name", "groups"]
-        if k in data
-    }
-    reordered.update({k: v for k, v in data.items() if k not in reordered})
-
-    result = collection.replace_one({"name": name}, reordered, upsert=True)
-
-    return JSONResponse({
-        "status": "ok",
-        "anchor": name,
-        "inserted": result.upserted_id is not None,
-        "user": user
-    })
-
-
-
-
-
-
-### list ancs depends on ldap groups
+# GET /db/list
 @router.get("/db/list", tags=["db"])
 def list_anchors_from_db(
     request: Request,
-    user_groups: list[str] = Depends(get_current_groups)
+    user_groups: list[str] = Depends(get_current_groups),
+    filter: str = ""
 ):
-    collection = get_mongo_collection("anchors")
-
     projection = {
         "_id": 0,
         "name": 1,
@@ -89,15 +45,28 @@ def list_anchors_from_db(
         "updated_by": 1
     }
 
-    all_anchors = list(collection.find({}, projection))
+    anchors = query_collection("anchors", filter, projection)
+    visibles = [a for a in anchors if is_visible(a, user_groups)]
+    return JSONResponse(content=visibles)
 
-    visible = []
-    for anchor in all_anchors:
-        anchor_groups = anchor.get("groups", [])
-        if not anchor_groups or "all" in anchor_groups:
-            visible.append(anchor)
-        elif any(group in user_groups for group in anchor_groups):
-            visible.append(anchor)
+# GET /db/pull/<name>
+@router.get("/db/pull/{name}", tags=["db"])
+def pull_anchor(
+    name: str,
+    user_groups: list[str] = Depends(get_current_groups)
+):
+    collection = db.get_collection("anchors")
+    anchor = collection.find_one({"name": name}, {"_id": 0})
 
-    return JSONResponse(content=visible)
+    if not anchor:
+        raise HTTPException(status_code=404, detail="Anchor not found")
+
+    if not is_visible(anchor, user_groups):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return JSONResponse(content=anchor)
+
+
+
+
 

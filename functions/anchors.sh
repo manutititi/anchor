@@ -252,14 +252,14 @@ anc() {
 
 
     push)
-      source "${BASH_SOURCE%/*}/push.sh"
-      anc_handle_push "$2" "$3"
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" push "$@"
       ;;
 
 
     pull)
-      source "${BASH_SOURCE%/*}/pull.sh"
-      anc_handle_pull "$2" "$3"
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" pull "$@"
       ;;
 
     help)

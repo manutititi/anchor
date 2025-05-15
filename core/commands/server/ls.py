@@ -19,9 +19,16 @@ def run(args):
         print(red("Missing server URL or token. Use `anc server auth` to authenticate."))
         return
 
+    # 🧠 Añadir filtro si viene
+    filter_str = args.filter or ""
+    url = f"{server_url}/db/list"
+    if filter_str:
+        from urllib.parse import quote
+        url += f"?filter={quote(filter_str)}"
+
     try:
         response = requests.get(
-            f"{server_url}/db/list",
+            url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=5
         )
@@ -51,3 +58,4 @@ def run(args):
         updated_fmt = gray(updated)
 
         print(f"  ⚓ {blue(name):<20} {type_fmt:<10} → {path_fmt:<40} {updated_fmt}")
+

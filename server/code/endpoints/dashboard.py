@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from pymongo.collection import Collection
-from core.db_collection import get_mongo_collection
+from core.ancdb import ancDB
 
 router = APIRouter()
+db = ancDB()
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
-    collection: Collection = get_mongo_collection("anchors")
+    collection: Collection = db.get_collection("anchors")
 
     projection = {
         "_id": 0,
