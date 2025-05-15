@@ -1,18 +1,24 @@
-import sys
-import json
+from zoneinfo import ZoneInfo
 import os
+from datetime import datetime
 import re
+import pytz
 
 def get_nested(d, key):
+    """
+    Permite acceder a claves anidadas usando notación punto, ej: endpoint.base_url
+    """
     parts = key.split(".")
     for part in parts:
         if not isinstance(d, dict) or part not in d:
             return None
-        d = part = d[part]
+        d = d[part]
     return d
 
 def normalize_value(value):
-    """Convierte 'true' → True, '123' → 123, etc."""
+    """
+    Convierte strings comunes a tipos útiles: bool, int, etc.
+    """
     if isinstance(value, str):
         v = value.lower()
         if v == "true":
@@ -25,14 +31,10 @@ def normalize_value(value):
 
 def expr_to_lambda(expr_str):
     """
-    Convierte una expresión como:
-        (env=dev OR env!=stage) AND project~demo
-    En una función que evalúa un dict.
+    Convierte una expresión tipo: env=prod AND project~web
+    en una función que evalúa un dict.
     """
-    # Reemplaza operadores lógicos
     expr_str = expr_str.replace(" AND ", " and ").replace(" OR ", " or ")
-
-    # Soporta múltiples operadores: =, !=, ~, !~
     pattern = re.compile(r'([a-zA-Z0-9_.]+)\s*(!=|=|~|!~)\s*("[^"]+"|[^\s()]+)')
     var_map = {}
 
@@ -57,9 +59,15 @@ def expr_to_lambda(expr_str):
                 else:
                     env[var_name] = (actual != expected)
             elif op == "~":
-                env[var_name] = expected in str(actual) if actual is not None else False
+                if isinstance(actual, list):
+                    env[var_name] = any(expected in str(item) for item in actual)
+                else:
+                    env[var_name] = expected in str(actual) if actual is not None else False
             elif op == "!~":
-                env[var_name] = expected not in str(actual) if actual is not None else True
+                if isinstance(actual, list):
+                    env[var_name] = all(expected not in str(item) for item in actual)
+                else:
+                    env[var_name] = expected not in str(actual) if actual is not None else True
         try:
             return eval(expr_str, {}, env)
         except Exception:
@@ -68,6 +76,9 @@ def expr_to_lambda(expr_str):
     return matcher
 
 def matches_filter(data: dict, filter_str: str) -> bool:
+    """
+    Evalúa si un diccionario cumple con una expresión de filtro.
+    """
     if not filter_str:
         return True
     try:
@@ -76,26 +87,19 @@ def matches_filter(data: dict, filter_str: str) -> bool:
     except Exception:
         return False
 
-def load_all_anchors(anchor_dir: str) -> dict:
-    anchors = {}
-    for fname in os.listdir(anchor_dir):
-        if fname.endswith(".json"):
-            name = fname[:-5]
-            try:
-                with open(os.path.join(anchor_dir, fname), "r") as f:
-                    anchors[name] = json.load(f)
-            except Exception:
-                continue
-    return anchors
 
-def filter_anchors(filter_str=None) -> dict:
-    anchor_dir = os.environ.get("ANCHOR_DIR", "./data")
-    anchors = load_all_anchors(anchor_dir)
-    return {name: data for name, data in anchors.items() if matches_filter(data, filter_str)}
 
-# CLI fallback
-if __name__ == "__main__":
-    query = sys.argv[1] if len(sys.argv) > 1 else ""
-    matched = filter_anchors(query)
-    for name in matched:
-        print(name)
+
+
+
+TIMEZONE = os.getenv("TZ", "Europe/Madrid")
+
+def now_tz():
+    return datetime.now(ZoneInfo(TIMEZONE)).isoformat()
+
+
+
+
+def now_tz_ss():
+    tz_name = os.getenv("TZ", "Europe/Madrid")
+    return datetime.now(pytz.timezone(tz_name))

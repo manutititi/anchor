@@ -1,4 +1,9 @@
 fastapi
 uvicorn
 python-multipart
-
+python-jose[cryptography]
+ldap3
+pydantic
+pymongo
+typing
+pytz

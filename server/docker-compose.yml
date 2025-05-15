@@ -1,9 +1,42 @@
+version: '3.8'
+
 services:
   anc-server:
     build: .
+    container_name: anc-server
     ports:
       - "17017:17017"
     volumes:
       - ./anchors:/app/anchors
+      - ./code:/app/code        
+      - ./server.py:/app/server.py 
+    environment:
+      - MONGO_URI=mongodb://ancadmin:ancpass@mongodb:27017/
+      - MONGO_DB=anchor
+    networks:
+      - anc
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ancadmin # Must coincide with env
+      MONGO_INITDB_ROOT_PASSWORD: ancpass # Must coincide with env
+      MONGO_INITDB_DATABASE: anchor
+    networks:
+      - anc
     restart: unless-stopped
 
+volumes:
+  mongodb_data:
+
+networks:
+  anc:
+    external: true

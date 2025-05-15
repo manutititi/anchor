@@ -12,6 +12,9 @@ from commands import set as set_cmd
 from core.commands import docker as docker_cmd
 from commands import delete
 from commands import ldap as ldap_cmd
+from commands import server as server_cmd  
+from commands import push, pull
+
 
 
 def main():
@@ -109,7 +112,33 @@ def main():
     ldap_parser.set_defaults(func=ldap_cmd.run)
 
 
+    # server
+    server_parser = subparsers.add_parser("server", help="Interact with remote server")
+    server_parser.add_argument("subcommand", choices=["auth", "ls", "url", "status"], help="Subcommand to run")
+    server_parser.add_argument("-u", "--username", help="LDAP username")
+    server_parser.add_argument("-p", "--password", help="LDAP password")
+    server_parser.add_argument("value", nargs="?", help="Value for the subcommand (e.g., server URL)")
+    server_parser.add_argument("-f", "--filter", help="Filter anchors on remote server (e.g. env=prod AND type=url)")
+    server_parser.set_defaults(func=lambda args: server_cmd.run(args.subcommand, args))
 
+
+    
+    # push
+    push_parser = subparsers.add_parser("push", help="Push anchor(s) to the server")
+    push_parser.add_argument("name", nargs="?", default=None, help="Anchor name (optional if using --filter)")
+    push_parser.add_argument("-f", "--filter", dest="filter_str", help="Filter anchors by metadata (e.g. env=prod)")
+    push_parser.set_defaults(func=lambda args: push.push_command(args.name, args.filter_str))
+
+
+    # pull
+    pull_parser = subparsers.add_parser("pull", help="Download anchor(s) from the server")
+    pull_parser.add_argument("anchor", nargs="?", help="Anchor name (optional if using -f or --all)")
+    pull_parser.add_argument("-f", "--filter", help="Metadata filter (e.g. env=prod)")
+    pull_parser.add_argument("--all", action="store_true", help="Download all visible anchors")
+    pull_parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+    pull_parser.set_defaults(func=lambda args: pull.run(args.anchor, args.filter, args.all, args.yes))
+
+    
 
     args = parser.parse_args()
 
