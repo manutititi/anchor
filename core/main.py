@@ -14,6 +14,17 @@ from commands import delete
 from commands import ldap as ldap_cmd
 from commands import server as server_cmd  
 from commands import push, pull
+from core.commands.cr import handle_cr
+from argparse import RawTextHelpFormatter
+
+
+
+def load_help(command):
+    help_path = os.path.join(os.path.dirname(__file__), "help", f"{command}.txt")
+    if os.path.exists(help_path):
+        with open(help_path, "r") as f:
+            return f.read()
+    return f"No help available for command '{command}'."
 
 
 
@@ -82,13 +93,23 @@ def main():
 
 
 
-    # restore (rc)
+    # recreate (rc)
     rc_parser = subparsers.add_parser("rc", help="Restore environment from anchor files")
     rc_parser.add_argument("anchor", help="Anchor name to restore")
     rc_parser.add_argument("path", nargs="?", help="Target path to restore files into")
     rc_parser.set_defaults(func=rc.run)
 
-
+    
+    # cr
+    cr_parser = subparsers.add_parser(
+    "cr",
+    help="Create JSON structure from files/directories",
+    description=load_help("cr"),
+    formatter_class=argparse.RawTextHelpFormatter)
+    cr_parser.add_argument("name", help="Anchor name")
+    cr_parser.add_argument("paths", nargs=argparse.REMAINDER, help="Paths with optional --mode and --blank flags")
+    cr_parser.add_argument("--mode", help="Default mode if none is specified")
+    cr_parser.set_defaults(func=handle_cr)
 
 
 

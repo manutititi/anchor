@@ -17,3 +17,17 @@ def resolve_path(raw_path: str, base_dir: str = None) -> str:
         return os.path.abspath(os.path.join(base_dir, raw_path))
 
     return os.path.realpath(raw_path)
+
+
+
+def as_relative_to_home(path: str) -> str:
+    """
+    Si la ruta está dentro del $HOME, devuelve ~/relativa.
+    Si no, devuelve la ruta original.
+    """
+    home = os.path.expanduser("~")
+    abs_path = os.path.realpath(path)
+
+    if abs_path.startswith(home):
+        return "~" + abs_path[len(home):]
+    return path
