@@ -7,7 +7,6 @@ from .ldif_export import export_ldif
 from .json_export import export_json
 from .csv_export import export_users, export_groups
 
-
 def normalize_filter(f):
     f = f.strip()
     return f if f.startswith("(") else f"({f})"
@@ -36,8 +35,6 @@ def run(args):
         args.filter or (f"objectClass={args.cls}" if args.cls else "objectClass=*")
     )
 
-    
-
     server = Server(host)
     conn = Connection(server, bind_dn, bind_password, auto_bind=True)
     conn.search(base_dn, ldap_filter, search_scope=SUBTREE, attributes=["*"])
@@ -47,7 +44,7 @@ def run(args):
         conn.unbind()
         return
 
-        # Exports
+    # Exports
     if args.ldif:
         export_ldif(conn.entries, args.ldif)
 
@@ -57,22 +54,21 @@ def run(args):
     elif args.csv:
         output = args.csv if isinstance(args.csv, str) else "export.csv"
 
-        
-        # Si todos los objectClass contienen 'groupOfNames' o 'posixGroup', se asume grupo
-        entry_classes = [
-            v.lower() if isinstance(v, str) else v[0].lower()
-            for e in conn.entries
-            if "objectClass" in e
-            for v in [e["objectClass"].value] if v
-        ]
+        # Heurística: objectClass contiene nombre común de grupos
+        group_keywords = ["groupofnames", "posixgroup", "groupofuniquenames", "ipausergroup"]
 
-        if all("group" in cls for cls in entry_classes):
+        def is_group(entry):
+            obj = entry["objectClass"].value if "objectClass" in entry else []
+            values = [obj] if isinstance(obj, str) else obj
+            return any(val.lower() in group_keywords for val in values)
+
+        if all(is_group(e) for e in conn.entries):
             export_groups(conn.entries, member_attr="member", output=output)
         else:
-            export_users(conn.entries, attr_map=None, output=output)  # attr_map = None usa todos
+            export_users(conn.entries, attr_map=None, output=output)
 
     else:
-        # Modo consola por defecto
+        # Shell  Mode
         for entry in conn.entries:
             print(entry.entry_dn)
             for attr, val in entry.entry_attributes_as_dict.items():
@@ -84,4 +80,3 @@ def run(args):
             print()
 
     conn.unbind()
-

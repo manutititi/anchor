@@ -162,10 +162,6 @@ anc() {
      anc_handle_copy_or_move "$@"
      ;;
    
-    cpt)
-      source "${BASH_SOURCE%/*}/copy_to_anchor.sh"
-      anc_handle_cpt "$2" "$3"
-      ;;
 
 
     sail)
@@ -291,23 +287,6 @@ anc() {
       "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" ldap "$@"
       ;;
 
-    
-    api)
-      shift
-      source "${BASH_SOURCE%/*}/api.sh"
-      anc_handle_api "$@"
-      ;;
-
-    api-test)
-      shift
-      source "${BASH_SOURCE%/*}/test_url.sh"
-      anc_handle_api_test "$@"
-      ;;
-
-
-    
-
-   
     env)
       shift
       source "${BASH_SOURCE%/*}/env.sh"

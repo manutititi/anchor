@@ -1,5 +1,6 @@
 import json
 from core.utils.colors import green
+import datetime
 
 def clean_value(val):
     if isinstance(val, bytes):
@@ -7,7 +8,11 @@ def clean_value(val):
             return val.decode("utf-8")
         except UnicodeDecodeError:
             return val.hex()
-    return val
+    if isinstance(val, datetime.datetime):
+        return val.isoformat()
+    if isinstance(val, (int, float, str)):
+        return val
+    return str(val)  
 
 def export_json(entries, output=None):
     data = []

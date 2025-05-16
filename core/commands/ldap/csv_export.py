@@ -1,4 +1,5 @@
 import csv
+import datetime
 from core.utils.colors import green
 
 def clean_value(val):
@@ -7,7 +8,11 @@ def clean_value(val):
             return val.decode("utf-8")
         except UnicodeDecodeError:
             return val.hex()
-    return val
+    elif isinstance(val, datetime.datetime):
+        return val.isoformat()
+    elif isinstance(val, (int, float, str)):
+        return val
+    return str(val)  # Fallback para cualquier otro tipo raro
 
 def extract_uid(dn_or_uid):
     """
@@ -20,8 +25,15 @@ def extract_uid(dn_or_uid):
             return first.split("=")[1]
     return dn_or_uid  # fallback
 
+
+
+
 def export_groups(entries, member_attr="member", output="groups.csv"):
-    group_map = {}  # group name → list of member uids
+    from collections import defaultdict
+    import csv
+    from core.utils.colors import green
+
+    group_map = defaultdict(list)  # group → list of member uids
 
     for entry in entries:
         group_name = entry["cn"].value if "cn" in entry else entry.entry_dn
@@ -29,20 +41,32 @@ def export_groups(entries, member_attr="member", output="groups.csv"):
         uids = [extract_uid(m) for m in members]
         group_map[group_name] = uids
 
-    # construir conjunto de todos los uids
-    all_uids = sorted(set(uid for members in group_map.values() for uid in members))
     groups = sorted(group_map.keys())
+    max_len = max(len(uids) for uids in group_map.values())
 
-    # escribir CSV transpuesto
+    # transponer columna a filas (columnas desiguales)
+    rows = []
+    for i in range(max_len):
+        row = []
+        for g in groups:
+            members = group_map[g]
+            row.append(members[i] if i < len(members) else "")
+        rows.append(row)
+
+    # escribir CSV
     with open(output, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(groups)
-
-        for uid in all_uids:
-            row = [uid if uid in group_map[g] else "" for g in groups]
-            writer.writerow(row)
+        writer.writerows(rows)
 
     print(green(f"✅ Exported group membership matrix to {output}"))
+
+
+
+
+
+
+
 
 def export_users(entries, attr_map=None, output="users.csv"):
     """
@@ -56,15 +80,16 @@ def export_users(entries, attr_map=None, output="users.csv"):
         attrs = entry.entry_attributes_as_dict
 
         for attr, val in attrs.items():
-            val = val if isinstance(val, list) else [val]
-            val = [clean_value(v) for v in val if v is not None]
+            if attr is None:
+                continue
 
-            if attr_map:
-                label = attr_map.get(attr, attr)
-            else:
-                label = attr
-
+            label = attr_map.get(attr, attr) if attr_map else attr
             all_fields.add(label)
+
+            # Normalizar valor a lista de strings
+            val = val if isinstance(val, list) else [val]
+            val = [str(clean_value(v)) for v in val if v is not None]
+
             row[label] = ", ".join(val)
 
         users.append(row)
