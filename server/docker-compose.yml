@@ -13,6 +13,10 @@ services:
     environment:
       - MONGO_URI=mongodb://ancadmin:ancpass@mongodb:27017/
       - MONGO_DB=anchor
+      - LDAP_SERVER=ldap://ldap:389
+      - LDAP_BASE_DN=dc=anchor,dc=local
+      - LDAP_ADMIN_DN=cn=admin,dc=anchor,dc=local
+      - LDAP_ADMIN_PASSWORD=admin
     networks:
       - anc
     restart: unless-stopped
@@ -27,8 +31,8 @@ services:
     volumes:
       - mongodb_data:/data/db
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ancadmin # Must coincide with env
-      MONGO_INITDB_ROOT_PASSWORD: ancpass # Must coincide with env
+      MONGO_INITDB_ROOT_USERNAME: ancadmin
+      MONGO_INITDB_ROOT_PASSWORD: ancpass
       MONGO_INITDB_DATABASE: anchor
     networks:
       - anc

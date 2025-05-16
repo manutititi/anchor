@@ -104,12 +104,19 @@ def main():
     # ldap
     ldap_parser = subparsers.add_parser("ldap", help="LDAP operations")
     ldap_parser.add_argument("anchor", help="Anchor name (must be type 'ldap')")
-    ldap_parser.add_argument("action", help="Action to perform (auth, get-user, etc.)")
-    ldap_parser.add_argument("username", nargs="?", help="LDAP username")
-    ldap_parser.add_argument("password", nargs="?", help="LDAP password")
-    ldap_parser.add_argument("--json", action="store_true", help="Output result in JSON format")
-    ldap_parser.add_argument("--class", dest="cls", help="LDAP objectClass to filter (e.g. inetOrgPerson)")
+    ldap_parser.add_argument("action", help="Action to perform (auth, users, groups, export)")
+    ldap_parser.add_argument("username", nargs="?", help="LDAP username (used in auth)")
+    ldap_parser.add_argument("password", nargs="?", help="LDAP password (used in auth)")
+
+        # Opciones comunes a export, users, etc.
+    ldap_parser.add_argument("--filter", "-f", help="Raw LDAP filter, e.g. uid=manu")
+    ldap_parser.add_argument("--class", dest="cls", help="LDAP objectClass filter, e.g. inetOrgPerson")
+    ldap_parser.add_argument("--ldif", help="Export result as LDIF to file")
+    ldap_parser.add_argument("--json", nargs="?", const=True, help="Export result as JSON (optional path)")
+    ldap_parser.add_argument("--csv", nargs="?", const=True, help="Export result as CSV")
+
     ldap_parser.set_defaults(func=ldap_cmd.run)
+
 
 
     # server
