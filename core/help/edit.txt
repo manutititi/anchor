@@ -1,0 +1,29 @@
+anc edit <name|path> [--yml]
+
+Edit an anchor's metadata JSON file (or any other .json file) using your default text editor.
+
+Examples:
+  anc edit my-anchor
+    → Opens '~/.anchors/data/my-anchor.json' in $EDITOR
+
+  anc edit my-anchor --yml
+    → Opens the anchor as temporary YAML, then converts back to JSON after saving
+
+  anc edit ./configs/nginx.json
+    → Opens any valid JSON file outside the anchor system
+
+  anc edit ~/custom.json --yml
+    → Opens external file in YAML mode (converted back to JSON on save)
+
+Options:
+  --yml               Edit using YAML (temporary file), then save as JSON
+                      Recommended for complex structures or readability
+
+Behavior:
+  - Accepts both anchor names and direct paths to .json files
+  - If --yml is used, opens a temporary YAML version and syncs changes back to JSON
+  - Respects $EDITOR environment variable (default: nano)
+
+Notes:
+  - Anchor files are looked up in $ANCHOR_DIR (default: ~/.anchors/data/)
+  - Invalid YAML or malformed JSON will raise an error and prevent saving

@@ -1,0 +1,27 @@
+anc meta <anchor> key=value [...] [--del key [...]]
+anc meta -f <filter> key=value [...] [--del key [...]]
+
+Update metadata fields inside one or more anchor files.
+
+EXAMPLES:
+  anc meta my-anchor env=prod project=api
+    Set two keys inside 'my-anchor.json'
+
+  anc meta my-anchor --del env
+    Delete the key 'env'
+
+  anc meta -f type=ssh user=admin
+    Apply metadata to all SSH anchors
+
+OPTIONS:
+  -f, --filter <expr>    Apply changes to anchors matching metadata filter
+  --del <key> [...]      Delete one or more keys
+
+BEHAVIOR:
+  - Dotted keys are supported: e.g. ansible.tasks.0.vars.debug=true
+  - Values are parsed as JSON if possible (e.g. key={"a":1})
+  - You must specify at least one key=value or --del
+
+NOTES:
+  - Metadata is stored in JSON files inside $ANCHOR_DIR (default: ./data)
+  - This command supports both single and batch updates via -f

@@ -1,0 +1,28 @@
+anc doc <anchor> [--print] [--out <file>]
+
+Generate Markdown documentation for a given anchor.
+
+Examples:
+  anc doc my-anchor
+    → Generates 'my-anchor.md' with detailed documentation
+
+  anc doc my-anchor --out docs/my-anchor.md
+    → Saves the markdown to a custom path
+
+  anc doc my-anchor --print
+    → Prints the markdown to stdout instead of saving it
+
+What it includes:
+  - Anchor type, path, created_by and update timestamps
+  - Description for the anchor type (files, ssh, ansible, etc.)
+  - Content summary:
+      * files → file table (path, type, mode, encoding)
+      * ssh → host, user, port, identity_file
+      * scripts → preload/postload lists
+      * endpoint → URL, methods, auth
+      * ansible → tasks with templates, vars, overrides, options
+  - groups → displayed for all types
+  - Suggested anc commands
+
+Note:
+  This command reads from ANCHOR_DIR and supports anchors using all current metadata formats.

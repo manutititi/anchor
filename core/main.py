@@ -3,10 +3,10 @@ import argparse
 import os
 import sys
 
-# Añadir ruta raíz al PYTHONPATH
+# Add path root  PYTHONPATH
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Importar subcomandos
+# Import subcommands
 from commands import ls, meta, url, rc
 from commands import set as set_cmd
 from core.commands import docker as docker_cmd
@@ -17,6 +17,8 @@ from commands import push, pull
 from core.commands.cr import handle_cr
 from argparse import RawTextHelpFormatter
 from core.commands.sible import handle_sible
+from core.commands.edit import handle_edit
+from core.commands.doc import generate_doc
 
 
 
@@ -68,14 +70,19 @@ def main():
 
 
     # meta
-    meta_parser = subparsers.add_parser("meta", help="Update metadata")
+    meta_parser = subparsers.add_parser("meta", help="Update metadata", description=load_help("meta"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     meta_parser.add_argument("-f", "--filter", help="Filter anchors")
     meta_parser.add_argument("args", nargs="*", help="Anchor name followed by key=value pairs")
     meta_parser.add_argument("--del", nargs="+", dest="delete", help="Keys to delete")
     meta_parser.set_defaults(func=meta.run)
 
 
-    
+    # doc
+    doc_parser = subparsers.add_parser("doc", help="Generate Markdown documentation for a given anchor.", description=load_help("doc"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
+    doc_parser.add_argument("name", help="Anchor name (or anchor filename without .json)")
+    doc_parser.add_argument("--out", help="Write to a specific markdown file (default: <name>.md)")
+    doc_parser.add_argument("--print", action="store_true", help="Print to stdout instead of writing to a file")
+    doc_parser.set_defaults(func=lambda args: generate_doc(args.name, args.out, args.print))
 
 
     # url
@@ -102,15 +109,19 @@ def main():
 
     
     # cr
-    cr_parser = subparsers.add_parser(
-    "cr",
-    help="Create JSON structure from files/directories",
-    description=load_help("cr"),
-    formatter_class=argparse.RawTextHelpFormatter)
+    cr_parser = subparsers.add_parser("cr", help="Create JSON structure from files/directories", description=load_help("cr"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     cr_parser.add_argument("name", help="Anchor name")
     cr_parser.add_argument("paths", nargs=argparse.REMAINDER, help="Paths with optional --mode and --blank flags")
     cr_parser.add_argument("--mode", help="Default mode if none is specified")
     cr_parser.set_defaults(func=handle_cr)
+
+    
+
+    # edit
+    edit_parser = subparsers.add_parser("edit", help="Edit anchor or file (JSON/YAML)", description=load_help("edit"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
+    edit_parser.add_argument("name", help="Anchor name or path to JSON file")
+    edit_parser.add_argument("--yml", action="store_true", help="Edit using YAML format")
+    edit_parser.set_defaults(func=handle_edit)
 
 
 

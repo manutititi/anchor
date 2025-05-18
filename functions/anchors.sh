@@ -44,8 +44,7 @@ anc() {
 
     edit)
       shift
-      source "${BASH_SOURCE%/*}/edit.sh"
-      anc_handle_edit "$@"
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" edit "$@"
       ;;
 
 
@@ -294,23 +293,29 @@ anc() {
       ;;
 
 
-   rc)
-    shift
-    "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" rc "$@"
-    ;;
+    rc)
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" rc "$@"
+      ;;
 
 
     cr)
-    shift
-    "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" cr "$@"
-    ;;
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" cr "$@"
+      ;;
 
 
     sible)
-    shift
-    "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" sible "$@"
-    ;;
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" sible "$@"
+      ;;
 
+
+
+    doc)
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" doc "$@"
+      ;;
 
         
     *)

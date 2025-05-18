@@ -11,6 +11,7 @@ def magenta(text): return color(text, "0;35")
 def gray(text): return color(text, "0;37")
 def bold(text): return color(text, "1")
 def dim(text): return color(text, "2")
+def vivid_green(text): return color(text, "1;92")
 def reset(): return "\033[0m"
 
 # Modo por clase si querés también usarlo como atributo
