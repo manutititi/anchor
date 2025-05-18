@@ -93,12 +93,22 @@ def build_files_dict_from_paths(triplets):
                 files_dict[key] = entry
 
         elif os.path.isdir(resolved):
-            for root, _, files in os.walk(resolved):
+            for root, dirs, files in os.walk(resolved):
+                rel_root = os.path.relpath(root, resolved)
+                key_root = os.path.normpath(os.path.join(upath.rstrip("/"), rel_root)).rstrip("/") + "/"
+
+                # Añadir solo si es un directorio vacío
+                if not files and not dirs:
+                    files_dict[key_root] = {
+                        "type": "directory",
+                        "mode": "ensure",
+                        "become": should_become(key_root)
+                    }
+
                 for name in files:
                     full_path = os.path.join(root, name)
                     rel_inside = os.path.relpath(full_path, resolved)
                     key = os.path.normpath(os.path.join(upath.rstrip("/"), rel_inside))
-
                     content, encoding = encode_file(full_path)
                     if encoding is not None:
                         entry = {

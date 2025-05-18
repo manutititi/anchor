@@ -74,6 +74,16 @@ def recreate_from_anchor(anchor_name, target_path):
 
     for rel_path, file_data in files.items():
         dest = os.path.join(target_path, rel_path)
+
+        # Crear directorios vacíos (type: directory)
+        if file_data.get("type") == "directory":
+            try:
+                os.makedirs(dest, exist_ok=True)
+            except Exception as e:
+                print(red(f"❌ Failed to create directory {dest}: {e}"))
+            continue
+
+        # Asegurar carpeta contenedora
         os.makedirs(os.path.dirname(dest), exist_ok=True)
 
         if file_data.get("external"):

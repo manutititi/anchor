@@ -16,6 +16,7 @@ from commands import server as server_cmd
 from commands import push, pull
 from core.commands.cr import handle_cr
 from argparse import RawTextHelpFormatter
+from core.commands.sible import handle_sible
 
 
 
@@ -167,6 +168,15 @@ def main():
     pull_parser.set_defaults(func=lambda args: pull.run(args.anchor, args.filter, args.all, args.yes))
 
     
+
+    # Sible (Ansible)
+    sible_parser = subparsers.add_parser("sible", help="Execute ansible tasks defined in a template anchor")
+    sible_parser.add_argument("anchor", help="Anchor of type 'ansible' that defines the tasks to run")
+    sible_parser.add_argument("host", nargs="?", help="One or more SSH anchors (comma-separated), or use -f to filter by metadata")
+    sible_parser.add_argument("-f", "--filter", help="Metadata filter (e.g. env=prod AND project~web)")
+    sible_parser.set_defaults(func=handle_sible)
+
+
 
     args = parser.parse_args()
 

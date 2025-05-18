@@ -306,6 +306,11 @@ anc() {
     ;;
 
 
+    sible)
+    shift
+    "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" sible "$@"
+    ;;
+
 
         
     *)
