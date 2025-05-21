@@ -1,0 +1,31 @@
+anc pull <name>
+anc pull -f <key=value>
+anc pull --all
+
+Download anchor(s) from the configured remote server.
+
+Examples:
+  anc pull my-anchor
+    → Downloads 'my-anchor.json' from the server into $ANCHOR_DIR
+
+  anc pull -f env=dev
+    → Downloads all anchors matching the metadata filter 'env=dev'
+
+  anc pull --all
+    → Downloads all visible anchors from the remote server
+
+Options:
+  -f, --filter key=value   Filter anchors by metadata (e.g. project=web)
+  --all                    Download all anchors available to the user
+  --yes                    Skip confirmation prompts (overwrite without asking)
+
+Behavior:
+  - Requires prior authentication via `anc server auth`
+  - Automatically appends `.json` if not present
+  - Prompts before overwriting existing local files unless --yes is passed
+  - Metadata filter uses the same syntax as `anc run`, `anc ls`, etc.
+
+Notes:
+  - Anchors are saved to $ANCHOR_DIR (default: ~/.anchors/data/)
+  - If no filter or name is given, shows usage and exits
+  - Server must support the `/db/list` and `/db/pull/<name>` endpoints

@@ -1,0 +1,55 @@
+anc set [--env <name> [.env]] 
+        [--url <name> <base_url>] 
+        [--ldap <name>] 
+        [--ssh <name> <user@host[:/path]> [-i key] [--port N]]
+        [--ansible <name> [-t template ...]]
+        [<name>] [--abs]
+
+Create a new anchor of a specific type (env, url, ldap, ssh, ansible, or local).
+
+Examples:
+  anc set myproject
+    → Creates a local anchor pointing to the current directory
+
+  anc set myproject --abs
+    → Same as above, but stores the absolute path instead of ~/myproject
+
+  anc set --env dev .env
+    → Initializes an environment anchor using variables from .env file
+
+  anc set --url api http://localhost:8000
+    → Creates a URL anchor pointing to a REST API
+
+  anc set --ldap ldap1
+    → Starts an interactive prompt to configure an LDAP anchor
+
+  anc set --ssh web01 deploy@web01.server.com:/var/www -i ~/.ssh/id_rsa
+    → Creates an SSH anchor pointing to a remote directory
+
+  anc set --ssh backup1 root@10.0.0.5
+    → Creates an SSH anchor using the home directory as the default path
+
+  anc set --ansible deploy -t update_upgrade restart_service
+    → Creates an Ansible anchor with multiple tasks
+
+  anc set --ansible config -t from_anchor:base
+    → Adds a provisioning task based on another anchor called "base"
+
+Options:
+  --env <name> [.env]         Create an environment anchor (optionally from a .env file)
+  --url <name> <url>          Create a URL anchor (base URL required)
+  --ldap <name>               Create an LDAP anchor (interactive)
+  --ssh <name> <target>       Create an SSH anchor (format: user@host[:/path])
+  --ansible <name>            Create an Ansible anchor
+  --templates, -t             List of templates to use as Ansible tasks
+                              Use from_anchor:<anchor> to reference another anchor
+
+  -i, --identity <key>        SSH private key (used with --ssh)
+  --port <N>                  SSH port (default: 22)
+  --abs                       Store absolute path (only used for local anchors)
+
+Notes:
+  - Only one anchor type may be used at a time: --env, --url, --ldap, --ssh, or --ansible.
+  - If no type is specified, a local anchor is created from the current path.
+  - Templates for Ansible anchors are defined as individual tasks.
+  - Anchors are saved as JSON in $ANCHOR_DIR (default: ./data).

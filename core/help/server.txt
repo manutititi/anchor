@@ -1,0 +1,35 @@
+anc server <subcommand> [args...]
+
+Interact with the configured remote Anchor server (authentication, status, and anchor management).
+
+Examples:
+  anc server auth -u john -p secret
+    → Authenticate against the server using LDAP credentials
+
+  anc server url http://localhost:17017
+    → Set the server URL for anchor operations
+
+  anc server ls
+    → List all anchors visible to the current user
+
+  anc server ls -f "env=prod AND type=url"
+    → Filter server anchors using metadata expression
+
+  anc server status
+    → Check if the remote server is online and reachable
+
+Options:
+  -u, --username USERNAME     LDAP username (used with `auth`)
+  -p, --password PASSWORD     LDAP password (used with `auth`)
+  -f, --filter EXPR           Filter anchors on server (used with `ls`)
+  value                       Value for subcommands like `url` (e.g., URL string)
+
+Behavior:
+  - `auth` stores a token locally for authenticated API requests
+  - `url` updates the remote server endpoint in 'server/info.json'
+  - `ls` supports metadata filtering with AND/OR/NOT operators
+  - `status` verifies connectivity and token validity
+
+Notes:
+  - All server state is stored in ~/.anchors/server/info.json
+  - Required for operations like `push`, `pull`, and remote filtering

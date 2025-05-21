@@ -1,0 +1,45 @@
+anc ldap <anchor> <action> [options]
+
+Perform operations on an LDAP anchor, such as authentication or data export.
+
+Examples:
+  anc ldap my-ldap auth manu
+    → Prompts for password and authenticates 'manu' against the LDAP server
+
+  anc ldap my-ldap auth manu secret123
+    → Authenticates directly using provided username and password
+
+  anc ldap my-ldap export
+    → Lists all entries in LDIF format
+
+  anc ldap my-ldap export --json
+    → Outputs all entries as JSON to stdout
+
+  anc ldap my-ldap export --class groupOfNames
+    → Lists only entries matching objectClass=groupOfNames
+
+  anc ldap my-ldap export --class groupOfNames --csv groups.csv
+    → Exports a group membership matrix to 'groups.csv'
+
+Options:
+  <anchor>                   Anchor name (must be of type 'ldap')
+  <action>                   Subcommand to run: `auth`, `export`, etc.
+  <username> [password]      Used only for the `auth` action
+
+  -f, --filter FILTER        Raw LDAP filter (e.g. uid=admin)
+  --class CLASS              LDAP objectClass to filter entries
+  --ldif FILE                Export result as LDIF
+  --json [FILE]              Export result as JSON (to file or stdout)
+  --csv [FILE]               Export result as CSV (to file or stdout)
+
+Behavior:
+  - The anchor must include all required LDAP connection details
+  - `auth` verifies the given credentials and prints the user's DN
+  - `export` fetches entries using optional filters or class constraints
+  - If no format is specified in `export`, LDIF is shown by default
+  - CSV export auto-generates a matrix when objectClass is group-based
+
+Notes:
+  - Credentials can be passed as arguments or prompted interactively
+  - JSON and CSV exports adapt to the structure of returned entries
+  - Useful for audits, migrations, and validating LDAP configurations

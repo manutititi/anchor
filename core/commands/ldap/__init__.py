@@ -1,18 +1,12 @@
-from commands.ldap import auth, export
-
+from commands.ldap import auth, export, ldap_import
 
 def run(args):
     if args.action == "auth":
-        from . import auth
         return auth.run(args)
-    if args.action == "users":
-        from . import users
-        return users.run(args)
-    if args.action == "groups":
-        from . import groups
-        return groups.run(args)
     if args.action == "export":
-        from . import export
         return export.run(args)
+    if args.action == "import":
+        return ldap_import.run(args)
 
     print(f"❌ Unknown ldap action: {args.action}")
+    return 1

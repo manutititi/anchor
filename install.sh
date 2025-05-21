@@ -92,6 +92,7 @@ if [[ ! -f "$REQ_FILE" ]]; then
 ldap3
 PyYAML
 requests
+ldif
 EOF
   echo -e "${YELLOW}📦 Default requirements.txt created${RESET}"
 fi

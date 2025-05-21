@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # Import subcommands
 from commands import ls, meta, url, rc
 from commands import set as set_cmd
-from core.commands import docker as docker_cmd
 from commands import delete
 from commands import ldap as ldap_cmd
 from commands import server as server_cmd  
@@ -44,13 +43,13 @@ def main():
 
 
     # set
-    set_parser = subparsers.add_parser("set", help="Create or update an anchor")
+    set_parser = subparsers.add_parser("set", help="Create or update an anchor", description=load_help("set"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     set_parser.add_argument("name", nargs="?", help="Anchor name or path")
     set_parser.add_argument("--url", action="store_true", help="Create a URL-type anchor")
     set_parser.add_argument("--env", action="store_true", help="Create an environment anchor")
     set_parser.add_argument("--ldap", action="store_true", help="Create an LDAP anchor")
     set_parser.add_argument("--docker", action="store_true", help="Create a Docker-type anchor")
-    set_parser.add_argument("--rel", action="store_true", help="Store path relative to home (~)")
+    set_parser.add_argument("--abs", action="store_true", help="Store absolute path (default: relative to ~)")
     set_parser.add_argument("--server", nargs="?", const="http://localhost:17017", help="Set server URL (default: localhost:17017)")
     set_parser.add_argument("base_url", nargs="?", help="Base URL or .env file depending on context")
 
@@ -58,6 +57,16 @@ def main():
     set_parser.add_argument("--base-dn", help="Base DN for LDAP anchor")
     set_parser.add_argument("--bind-dn", help="Bind DN for LDAP admin")
     set_parser.add_argument("--bind-password", help="Bind password for LDAP")
+
+        #ssh
+    set_parser.add_argument("--ssh", nargs=2, metavar=("name", "user@host[:/path]"), help="Create SSH-type anchor: user@host[:/path]")
+    set_parser.add_argument("-i", "--identity", help="SSH private key (optional)")
+    set_parser.add_argument("--port", help="SSH port (default: 22)")
+
+        # ansible
+    set_parser.add_argument("--ansible", help="Create an Ansible anchor (name only)")
+    set_parser.add_argument("--templates", "-t", nargs="+", help="Templates to include in the Ansible tasks")
+
 
     set_parser.set_defaults(func=set_cmd.run)
 
@@ -124,36 +133,35 @@ def main():
     edit_parser.set_defaults(func=handle_edit)
 
 
-
-    
-    # docker
-    docker_parser = subparsers.add_parser("docker", help="Manage docker-based anchors")
-    docker_parser.add_argument("-r", "--restore", nargs="+", help="Restore a docker anchor into a directory")
-    docker_parser.set_defaults(func=docker_cmd.run)
-
-
-
-
     # ldap
-    ldap_parser = subparsers.add_parser("ldap", help="LDAP operations")
+    ldap_parser = subparsers.add_parser("ldap", help="LDAP operations", description=load_help("ldap"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     ldap_parser.add_argument("anchor", help="Anchor name (must be type 'ldap')")
-    ldap_parser.add_argument("action", help="Action to perform (auth, users, groups, export)")
+    ldap_parser.add_argument("action", help="Action to perform (auth, export, import)")
+
+    # Solo para auth
     ldap_parser.add_argument("username", nargs="?", help="LDAP username (used in auth)")
     ldap_parser.add_argument("password", nargs="?", help="LDAP password (used in auth)")
 
-        # Opciones comunes a export, users, etc.
-    ldap_parser.add_argument("--filter", "-f", help="Raw LDAP filter, e.g. uid=manu")
-    ldap_parser.add_argument("--class", dest="cls", help="LDAP objectClass filter, e.g. inetOrgPerson")
+    # Comunes a export/import
+    ldap_parser.add_argument("-f", "--filter", help="Raw LDAP filter (e.g. uid=manu)")
+    ldap_parser.add_argument("--class", dest="cls", help="LDAP objectClass filter (e.g. inetOrgPerson)")
+
+    # Export
     ldap_parser.add_argument("--ldif", help="Export result as LDIF to file")
     ldap_parser.add_argument("--json", nargs="?", const=True, help="Export result as JSON (optional path)")
     ldap_parser.add_argument("--csv", nargs="?", const=True, help="Export result as CSV")
+
+    ldap_parser.add_argument("--add", action="store_true", help="Import LDIF entries with add operation")
+    ldap_parser.add_argument("--modify", action="store_true", help="Import LDIF entries with modify operation")
+    ldap_parser.add_argument("--delete", action="store_true", help="Import LDIF entries with delete operation")
+
 
     ldap_parser.set_defaults(func=ldap_cmd.run)
 
 
 
     # server
-    server_parser = subparsers.add_parser("server", help="Interact with remote server")
+    server_parser = subparsers.add_parser("server", help="Interact with remote server", description=load_help("server"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     server_parser.add_argument("subcommand", choices=["auth", "ls", "url", "status"], help="Subcommand to run")
     server_parser.add_argument("-u", "--username", help="LDAP username")
     server_parser.add_argument("-p", "--password", help="LDAP password")
@@ -164,14 +172,14 @@ def main():
 
     
     # push
-    push_parser = subparsers.add_parser("push", help="Push anchor(s) to the server")
+    push_parser = subparsers.add_parser("push", help="Push anchor(s) to the server", description=load_help("push"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     push_parser.add_argument("name", nargs="?", default=None, help="Anchor name (optional if using --filter)")
     push_parser.add_argument("-f", "--filter", dest="filter_str", help="Filter anchors by metadata (e.g. env=prod)")
     push_parser.set_defaults(func=lambda args: push.push_command(args.name, args.filter_str))
 
 
     # pull
-    pull_parser = subparsers.add_parser("pull", help="Download anchor(s) from the server")
+    pull_parser = subparsers.add_parser("pull", help="Download anchor(s) from the server", description=load_help("pull"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     pull_parser.add_argument("anchor", nargs="?", help="Anchor name (optional if using -f or --all)")
     pull_parser.add_argument("-f", "--filter", help="Metadata filter (e.g. env=prod)")
     pull_parser.add_argument("--all", action="store_true", help="Download all visible anchors")
@@ -181,7 +189,7 @@ def main():
     
 
     # Sible (Ansible)
-    sible_parser = subparsers.add_parser("sible", help="Execute ansible tasks defined in a template anchor")
+    sible_parser = subparsers.add_parser("sible", help="Execute ansible tasks defined in a template anchor", description=load_help("sible"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     sible_parser.add_argument("anchor", help="Anchor of type 'ansible' that defines the tasks to run")
     sible_parser.add_argument("host", nargs="?", help="One or more SSH anchors (comma-separated), or use -f to filter by metadata")
     sible_parser.add_argument("-f", "--filter", help="Metadata filter (e.g. env=prod AND project~web)")

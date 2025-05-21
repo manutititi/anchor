@@ -1,0 +1,25 @@
+anc push <name>
+anc push -f <key=value>
+
+Upload one or more anchor files to the configured remote server.
+
+Examples:
+  anc push my-anchor
+    → Uploads '~/.anchors/data/my-anchor.json' to the server
+
+  anc push -f env=prod
+    → Uploads all anchors with metadata 'env=prod' after confirmation
+
+Options:
+  -f, --filter key=value   Filter anchors by metadata (e.g. project=demo)
+
+Behavior:
+  - Pushes anchor(s) to the server defined in 'server/info.json'
+  - Requires prior authentication via `anc server auth`
+  - Uploads anchor JSON as-is using HTTP POST
+  - Shows confirmation prompt before batch upload
+
+Notes:
+  - Anchors are loaded from $ANCHOR_DIR (default: ~/.anchors/data/)
+  - Any upload failure will show the status code and server response
+  - Supports both single-name and multi-anchor workflows
