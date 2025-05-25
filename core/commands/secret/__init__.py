@@ -1,15 +1,17 @@
-from . import ls, get, pull, update, push
+from . import ls, get, pull, update, push, del_cmd
 
-def run(action, args):
-    if action == "ls":
+def run(subcommand, args):
+    if subcommand == "ls":
         return ls.run(args)
-    elif action == "get":
+    elif subcommand == "get":
         return get.run(args)
-    elif action == "pull":
+    elif subcommand == "pull":
         return pull.run(args)
-    elif action == "update":
+    elif subcommand == "update":
         return update.run(args)
-    elif action == "push":
+    elif subcommand == "push":
         return push.run(args)
+    elif subcommand in ("del", "rm"):
+        return del_cmd.run(args)
     else:
-        print(f"❌ Unknown ref command: {action}")
+        print(f"❌ Unknown secret command: {subcommand}")

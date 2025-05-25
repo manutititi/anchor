@@ -18,7 +18,7 @@ anc_env_apply() {
     esac
   done
 
-  # Si no se pasa nombre, intentar leer .anc_env
+  # Leer .anc_env si no se pasó nombre
   if [[ -z "$env_name" ]]; then
     if [[ -f .anc_env ]]; then
       env_name=$(<.anc_env)
@@ -54,11 +54,30 @@ anc_env_apply() {
   local vars_keys
   vars_keys=$(jq -r '.vars | keys[]?' "$env_file")
   for key in $vars_keys; do
-    local value
-    value=$(jq -r --arg k "$key" '.vars[$k]' "$env_file")
+    local raw value
+    raw=$(jq -r --arg k "$key" '.vars[$k]' "$env_file")
+    value="$raw"
+
+    # Resolver secretos si es ref:secret:ID o secret:ID
+    if [[ "$raw" =~ ^ref:secret:(.+)$ ]]; then
+      local sid="${BASH_REMATCH[1]}"
+      value=$(anc secret get "$sid" 2>/dev/null)
+      if [[ -z "$value" ]]; then
+        echo "❌ Failed to resolve secret: $sid"
+        return 1
+      fi
+    elif [[ "$raw" =~ ^secret:(.+)$ ]]; then
+      local sid="${BASH_REMATCH[1]}"
+      value=$(anc secret get "$sid" 2>/dev/null)
+      if [[ -z "$value" ]]; then
+        echo "❌ Failed to resolve secret: $sid"
+        return 1
+      fi
+    fi
+
     export "$key=$value"
 
-    if [[ "$key" == "API_TOKEN" || "$key" == "SECRET_KEY" ]]; then
+    if [[ "$key" == "API_TOKEN" || "$key" == "SECRET_KEY" || "$raw" == ref:secret:* || "$raw" == secret:* ]]; then
       echo "  🔐 $key=**********"
     else
       echo "  🔑 $key=$value"
@@ -70,7 +89,6 @@ anc_env_apply() {
 
   echo "✅ Environment '$env_name' applied."
 }
-
 
 anc_run_scripts() {
   local env_file="$1"

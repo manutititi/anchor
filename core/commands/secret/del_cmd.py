@@ -1,9 +1,14 @@
 import json
 import requests
 from pathlib import Path
-from core.utils.colors import red, green, blue, yellow, gray
+from core.utils.colors import red, green, yellow
 
 def run(args):
+    if not args.id:
+        print(red("You must provide the secret ID: `anc secret del <id>`"))
+        return
+
+    ref_id = args.id
     info_path = Path.home() / ".anchors" / "server" / "info.json"
     if not info_path.exists():
         print(red("No remote server configured. Use: anc server url <url>"))
@@ -19,10 +24,9 @@ def run(args):
         print(red("Missing server URL or token. Use `anc server auth` to authenticate."))
         return
 
-    url = f"{server_url.rstrip('/')}/ref/list"
-
+    url = f"{server_url.rstrip('/')}/ref/delete/{ref_id}"
     try:
-        response = requests.get(
+        response = requests.delete(
             url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=5
@@ -31,20 +35,11 @@ def run(args):
         print(red(f"Connection error:\n{e}"))
         return
 
-    if response.status_code != 200:
-        print(red(f"Server error: {response.status_code} {response.text}"))
-        return
-
-    secrets = response.json()
-    if not secrets:
-        print(yellow("No secrets found."))
-        return
-
-    print(green("Secrets (ref):"))
-    for secret in secrets:
-        id_ = secret.get("id", "")
-        desc = secret.get("description", "")
-        owned = secret.get("owned", False)
-
-        suffix = " (owned)" if owned else ""
-        print(f"  🔐 {blue(id_):<20} → {gray(desc)}{suffix}")
+    if response.status_code == 200:
+        print(green(f"✅ Secret '{ref_id}' deleted successfully."))
+    elif response.status_code == 403:
+        print(red("❌ Access denied: only the creator can delete this secret."))
+    elif response.status_code == 404:
+        print(red("❌ Secret not found."))
+    else:
+        print(red(f"❌ Server error: {response.status_code} {response.text}"))

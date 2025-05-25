@@ -204,7 +204,7 @@ def main():
 
     secret_parser.add_argument(
         "subcommand",
-        choices=["ls", "get", "pull", "update", "push"],
+        choices=["ls", "get", "pull", "update", "push", "del", "rm"],
         help="Subcommand to run"
     )
     secret_parser.add_argument("id", nargs="?", help="Secret ID")
