@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends
-from endpoints import anchors, users, files, dashboard, admin, dbsync
+from endpoints import anchors, users, files, dashboard, admin, dbsync, ref
 from auth.session import AuthMiddleware, get_current_user, require_group
 from code.core.ancdb import ancDB
 
@@ -14,6 +14,8 @@ app.include_router(files.router, prefix="/files")
 app.include_router(dashboard.router)
 app.include_router(users.router) 
 app.include_router(dbsync.router)
+app.include_router(ref.router, prefix="/ref")
+
 
 # PHealt
 @app.get("/health")

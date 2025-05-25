@@ -46,7 +46,7 @@ def generate_ssh_metadata(name, user, host, path, identity=None, port=22):
     meta["groups"] = []
     meta["host"] = host
     meta["user"] = user
-    meta["identity"] = identity or ""
+    meta["identity_file"] = identity or ""
     meta["port"] = port
     meta["paths"] = [{
         "path": path,

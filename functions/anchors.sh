@@ -312,6 +312,12 @@ anc() {
 
 
 
+    secret)
+      shift
+      "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" secret "$@"
+      ;;
+
+
     doc)
       shift
       "$PYTHON_BIN" "$ANCHOR_ROOT/core/main.py" doc "$@"

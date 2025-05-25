@@ -30,6 +30,7 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
     environment:
       MONGO_INITDB_ROOT_USERNAME: ancadmin
       MONGO_INITDB_ROOT_PASSWORD: ancpass

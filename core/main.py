@@ -18,6 +18,8 @@ from argparse import RawTextHelpFormatter
 from core.commands.sible import handle_sible
 from core.commands.edit import handle_edit
 from core.commands.doc import generate_doc
+from core.commands import secret
+
 
 
 
@@ -194,6 +196,22 @@ def main():
     sible_parser.add_argument("host", nargs="?", help="One or more SSH anchors (comma-separated), or use -f to filter by metadata")
     sible_parser.add_argument("-f", "--filter", help="Metadata filter (e.g. env=prod AND project~web)")
     sible_parser.set_defaults(func=handle_sible)
+
+
+
+    # secret
+    secret_parser = subparsers.add_parser("secret", help="Manage encrypted secrets in remote", description=load_help("secret"),formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
+
+    secret_parser.add_argument(
+        "subcommand",
+        choices=["ls", "get", "pull", "update", "push"],
+        help="Subcommand to run"
+    )
+    secret_parser.add_argument("id", nargs="?", help="Secret ID")
+    secret_parser.set_defaults(func=lambda args: secret.run(args.subcommand, args))
+
+
+
 
 
 
