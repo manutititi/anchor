@@ -25,10 +25,6 @@ def should_become(path):
 
 
 def parse_paths_modes_and_flags(raw_args, default_mode="replace"):
-    """
-    Interpreta: path [--mode m] [--blank] path [--mode m] ...
-    Devuelve: [(path, mode, blank)]
-    """
     result = []
     current_path = None
     current_mode = default_mode
@@ -62,12 +58,15 @@ def parse_paths_modes_and_flags(raw_args, default_mode="replace"):
     return result
 
 
-def build_files_dict_from_paths(triplets):
+def build_files_dict_from_paths(triplets, base_root=None):
     files_dict = {}
 
     for upath_raw, mode, blank in triplets:
         resolved = resolve_path(upath_raw)
-        upath = as_relative_to_home(upath_raw)
+        if base_root:
+            upath = os.path.relpath(resolved, start=base_root)
+        else:
+            upath = as_relative_to_home(upath_raw)
 
         if not os.path.exists(resolved):
             print(red(f"❌ Not found: {upath_raw}"))
@@ -94,7 +93,7 @@ def build_files_dict_from_paths(triplets):
 
         elif os.path.isdir(resolved):
             for root, dirs, files in os.walk(resolved):
-                rel_root = os.path.relpath(root, resolved)
+                rel_root = os.path.relpath(root, base_root or resolved)
                 key_root = os.path.normpath(os.path.join(upath.rstrip("/"), rel_root)).rstrip("/") + "/"
 
                 # Añadir solo si es un directorio vacío
@@ -107,7 +106,7 @@ def build_files_dict_from_paths(triplets):
 
                 for name in files:
                     full_path = os.path.join(root, name)
-                    rel_inside = os.path.relpath(full_path, resolved)
+                    rel_inside = os.path.relpath(full_path, base_root or resolved)
                     key = os.path.normpath(os.path.join(upath.rstrip("/"), rel_inside))
                     content, encoding = encode_file(full_path)
                     if encoding is not None:
@@ -141,6 +140,15 @@ def handle_cr(args):
         print(red(str(e)))
         return
 
+    if not parsed_inputs:
+        # Caso: anc cr name (sin rutas explícitas)
+        cwd = os.getcwd()
+        print(cyan(f"📂 No path provided, using current directory recursively: {cwd}"))
+        parsed_inputs = [(".", args.mode or "replace", False)]
+        show_dot_as_root = True
+    else:
+        show_dot_as_root = False
+
     valid_modes = {"replace", "append", "prepend", "regex"}
 
     for path, mode, _ in parsed_inputs:
@@ -158,14 +166,19 @@ def handle_cr(args):
     paths = [as_relative_to_home(p) for p, _, _ in parsed_inputs]
 
     anchor_data = {
-        "type": "files",
-        "name": anchor_name,
-        "path": paths if len(paths) > 1 else paths[0],
-        "files": files_dict,
-        "created_by": os.getenv("USER") or "unknown",
-        "last_updated": datetime.now().isoformat(),
-        "updated_by": os.getenv("USER") or "unknown"
-    }
+    "type": "files",
+    "name": anchor_name,
+    "path": "." if show_dot_as_root else (paths if len(paths) > 1 else paths[0]),
+    "files": files_dict,
+    "scripts": {
+        "preload": [],
+        "postload": []
+    },
+    "created_by": os.getenv("USER") or "unknown",
+    "last_updated": datetime.now().isoformat(),
+    "updated_by": os.getenv("USER") or "unknown"
+}
+
 
     anchor_dir = os.environ.get("ANCHOR_DIR", "data")
     os.makedirs(anchor_dir, exist_ok=True)

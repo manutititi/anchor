@@ -1,10 +1,16 @@
-anc cr <name> <path> [--mode <mode>] [--blank] <path> [--mode <mode>] ...
+anc cr <name> [<path> [--mode <mode>] [--blank] ...]
 
 Create a structured JSON representation of files and directories for later recreation.
 
+If no <path> is provided, the entire current working directory will be used as the base,
+and all its contents will be included recursively.
+
 Examples:
-  anc cr myenv ~/project/config
-    → Saves the entire directory (default mode: replace)
+  anc cr myenv
+    → Includes all files and directories under the current working directory (not the "." string)
+
+  anc cr myenv .
+    → Includes the current directory explicitly as a relative path ("./"), will appear in anchor as "~/.../."
 
   anc cr conf /etc/sysctl.conf --mode regex ~/.bashrc --mode append
     → Applies different modes to each file
@@ -30,5 +36,6 @@ Options:
 Notes:
   - Each --mode or --blank applies to the path that precedes it.
   - If --mode regex is used, a regex and submode structure is initialized.
+  - If no path is given, the anchor includes everything under the current working directory.
   - Anchors are stored as JSON in $ANCHOR_DIR (default: ./data).
-  - To restore the content later, use: anc rc <name>
+  - To recreate the content later, use: anc rc <name>

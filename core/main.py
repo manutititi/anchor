@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Import subcommands
-from commands import ls, meta, url, rc
+from commands import ls, meta, url
 from commands import set as set_cmd
 from commands import delete
 from commands import ldap as ldap_cmd
@@ -19,6 +19,7 @@ from core.commands.sible import handle_sible
 from core.commands.edit import handle_edit
 from core.commands.doc import generate_doc
 from core.commands import secret
+from core.commands import rc
 
 
 
@@ -122,8 +123,8 @@ def main():
     # cr
     cr_parser = subparsers.add_parser("cr", help="Create JSON structure from files/directories", description=load_help("cr"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     cr_parser.add_argument("name", help="Anchor name")
-    cr_parser.add_argument("paths", nargs=argparse.REMAINDER, help="Paths with optional --mode and --blank flags")
     cr_parser.add_argument("--mode", help="Default mode if none is specified")
+    cr_parser.add_argument("paths", nargs=argparse.REMAINDER, help="Paths with optional --mode and --blank")
     cr_parser.set_defaults(func=handle_cr)
 
     
