@@ -200,16 +200,31 @@ def main():
 
 
 
-    # secret
-    secret_parser = subparsers.add_parser("secret", help="Manage encrypted secrets in remote", description=load_help("secret"),formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
-
-    secret_parser.add_argument(
-        "subcommand",
-        choices=["ls", "get", "pull", "update", "push", "del", "rm"],
-        help="Subcommand to run"
+    # Secret
+    secret_parser = subparsers.add_parser(
+        "secret",
+        help="Manage encrypted secrets in remote",
+        description=load_help("secret"),
+        formatter_class=argparse.RawTextHelpFormatter,
+        usage=argparse.SUPPRESS
     )
+
+    secret_parser.add_argument("subcommand", choices=[
+        "ls", "get", "pull", "update", "push", "del", "rm", "set"
+    ], help="Subcommand to run")
+
+    
     secret_parser.add_argument("id", nargs="?", help="Secret ID")
-    secret_parser.set_defaults(func=lambda args: secret.run(args.subcommand, args))
+    secret_parser.add_argument("--out", help="Save secret to file instead of printing")
+    secret_parser.add_argument("file", nargs="?", help="Optional file to encrypt")
+    secret_parser.add_argument("--desc", help="Description for the secret")
+    secret_parser.add_argument("--users", help="Comma-separated list of users")
+    secret_parser.add_argument("--groups", help="Comma-separated list of groups")
+    secret_parser.add_argument("--gedit", action="store_true", help="Allow group edit")
+    secret_parser.add_argument("--secret", help="Literal plaintext value (exclusive with file)")
+
+    secret_parser.set_defaults(func=lambda args: secret.run(args.subcommand, args))    
+    
 
 
 

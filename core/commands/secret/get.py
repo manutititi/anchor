@@ -5,7 +5,7 @@ from core.utils.colors import red, green
 
 def run(args):
     if not args.id:
-        print(red("You must provide the secret ID: `anc ref get <id>`"))
+        print(red("You must provide the secret ID: `anc secret get <id>`"))
         return
 
     ref_id = args.id
@@ -40,4 +40,15 @@ def run(args):
         return
 
     data = res.json()
-    print(data["plaintext"])
+    plaintext = data["plaintext"]
+
+    # 📤 Output to file
+    if args.out:
+        out_path = Path(args.out).expanduser()
+        try:
+            out_path.write_text(plaintext)
+            print(green(f"✅ Secret written to {out_path}"))
+        except Exception as e:
+            print(red(f"❌ Failed to write to {out_path}: {e}"))
+    else:
+        print(plaintext)
