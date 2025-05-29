@@ -128,22 +128,27 @@ anc() {
         return 1
       fi
 
+      [[ "$old" != *.json ]] && old="$old.json"
+      [[ "$new" != *.json ]] && new="$new.json"
+
       local old_file="$anchor_dir/$old"
       local new_file="$anchor_dir/$new"
 
       if [[ ! -f "$old_file" ]]; then
-        echo -e "${RED}⚠️ Anchor '$old' does not exist${RESET}"
+        echo -e "${RED}⚠️ Anchor '${old%.json}' does not exist${RESET}"
         return 1
       fi
 
       if [[ -f "$new_file" ]]; then
-        echo -e "${RED}⚠️ Anchor '$new' already exists${RESET}"
+        echo -e "${RED}⚠️ Anchor '${new%.json}' already exists${RESET}"
         return 1
       fi
 
       mv "$old_file" "$new_file"
-      echo -e "${CYAN}🔄 Anchor '${BOLD}$old${RESET}${CYAN}' renamed to '${BOLD}$new${RESET}${CYAN}'${RESET}"
+      echo -e "${CYAN}🔄 Anchor '${BOLD}${old%.json}${RESET}${CYAN}' renamed to '${BOLD}${new%.json}${RESET}${CYAN}'${RESET}"
       ;;
+
+      
     
      
 

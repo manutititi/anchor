@@ -8,61 +8,60 @@ def get_nested(d, key):
     for part in parts:
         if not isinstance(d, dict) or part not in d:
             return None
-        d = part = d[part]
+        d = d[part]
     return d
 
 def normalize_value(value):
-    """Convierte 'true' → True, '123' → 123, etc."""
+    """Convierte valores booleanos, pero no toca strings numéricos."""
     if isinstance(value, str):
         v = value.lower()
         if v == "true":
             return True
         if v == "false":
             return False
-        if v.isdigit():
-            return int(v)
     return value
 
 def expr_to_lambda(expr_str):
-    """
-    Convierte una expresión como:
-        (env=dev OR env!=stage) AND project~demo
-    En una función que evalúa un dict.
-    """
-    # Reemplaza operadores lógicos
-    expr_str = expr_str.replace(" AND ", " and ").replace(" OR ", " or ")
+    expr_str = re.sub(r"\s+(AND|and)\s+", " and ", expr_str, flags=re.IGNORECASE)
+    expr_str = re.sub(r"\s+(OR|or)\s+", " or ", expr_str, flags=re.IGNORECASE)
 
-    # Soporta múltiples operadores: =, !=, ~, !~
-    pattern = re.compile(r'([a-zA-Z0-9_.]+)\s*(!=|=|~|!~)\s*("[^"]+"|[^\s()]+)')
+    pattern = re.compile(r'([a-zA-Z0-9_.]+)\s*(!=|=|~|!~)\s*("[^"]+"|\'[^\']+\'|[^\s()]+)')
     var_map = {}
+    replacements = []
 
-    for i, (key, op, val) in enumerate(pattern.findall(expr_str)):
+    for i, match in enumerate(pattern.finditer(expr_str)):
+        key, op, val = match.groups()
         var_name = f"_v{i}"
-        full_expr = f"{key}{op}{val}"
-        expr_str = expr_str.replace(full_expr, var_name)
-        var_map[var_name] = (key.strip(), op.strip(), normalize_value(val.strip('"')))
+        start, end = match.span()
+        replacements.append((start, end, var_name))
+        val = val.strip('"').strip("'")
+        var_map[var_name] = (key.strip(), op.strip(), normalize_value(val))
+
+    parts = []
+    last_index = 0
+    for start, end, var_name in replacements:
+        parts.append(expr_str[last_index:start])
+        parts.append(var_name)
+        last_index = end
+    parts.append(expr_str[last_index:])
+    expr_final = "".join(parts)
 
     def matcher(data):
         env = {}
         for var_name, (key, op, expected) in var_map.items():
             actual = get_nested(data, key)
             if op == "=":
-                if isinstance(actual, list):
-                    env[var_name] = expected in actual
-                else:
-                    env[var_name] = (actual == expected)
+                env[var_name] = expected in actual if isinstance(actual, list) else actual == expected
             elif op == "!=":
-                if isinstance(actual, list):
-                    env[var_name] = expected not in actual
-                else:
-                    env[var_name] = (actual != expected)
+                env[var_name] = expected not in actual if isinstance(actual, list) else actual != expected
             elif op == "~":
                 env[var_name] = expected in str(actual) if actual is not None else False
             elif op == "!~":
                 env[var_name] = expected not in str(actual) if actual is not None else True
         try:
-            return eval(expr_str, {}, env)
-        except Exception:
+            return eval(expr_final, {}, env)
+        except Exception as e:
+            print(f"[filter error] {e}")
             return False
 
     return matcher

@@ -38,22 +38,78 @@ anc_enter_anchor() {
     return
   fi
 
-  # 📡 Conexión SSH moderna (type = ssh)
-  if [[ "$type" == "ssh" ]]; then
-    local user host remote_path
-    user=$(jq -r '.ssh.user // empty' "$meta_file")
-    host=$(jq -r '.ssh.host // empty' "$meta_file")
-    remote_path=$(jq -r '.ssh.path // empty' "$meta_file")
+  
 
-    if [[ -z "$user" || -z "$host" || -z "$remote_path" ]]; then
-      echo -e "${RED}❌ Invalid SSH anchor: missing user, host or path${RESET}"
-      return 1
+  # 📡 Conexión SSH moderna (type = ssh)
+  
+  
+  if [[ "$type" == "ssh" ]]; then
+    local user host identity_file port
+    user=$(jq -r '.user' "$meta_file")
+    host=$(jq -r '.host' "$meta_file")
+    identity_file=$(jq -r '.identity_file // empty' "$meta_file")
+    port=$(jq -r '.port // 22' "$meta_file")
+
+    local path_count remote_path="~"
+    path_count=$(jq '.paths | length' "$meta_file")
+
+    if (( path_count > 0 )); then
+      echo -e "${CYAN}📁 Available paths for anchor '${BOLD}$name${RESET}${CYAN}':${RESET}"
+      for i in $(seq 0 $((path_count - 1))); do
+        local p n ro
+        p=$(jq -r ".paths[$i].path" "$meta_file")
+        n=$(jq -r ".paths[$i].note // empty" "$meta_file")
+        ro=$(jq -r ".paths[$i].read_only // false" "$meta_file")
+        echo -e "  [$i] ${GREEN}$p${RESET} ${DIM}${n:+• $n}${RESET}${ro:+ (RO)}"
+      done
+
+      echo -ne "${YELLOW}👉 Choose a path [0-$((path_count - 1))] (press Enter for ~): ${RESET}"
+      read -r index
+
+      if [[ "$index" =~ ^[0-9]+$ ]] && (( index >= 0 && index < path_count )); then
+        remote_path=$(jq -r ".paths[$index].path" "$meta_file")
+      else
+        echo -e "${DIM}➡ Using default path: ${GREEN}~${RESET}"
+      fi
     fi
 
     echo -e "${BLUE}🔐 Connecting to SSH anchor '${BOLD}$user@$host${RESET}${BLUE}' → ${GREEN}$remote_path${RESET}"
-    ssh "$user@$host" -t "cd '$remote_path' && exec bash"
+
+    ssh_cmd=(ssh -p "$port")
+    [[ -n "$identity_file" ]] && ssh_cmd+=(-i "$identity_file")
+
+    if [[ "$remote_path" == "~" ]]; then
+      # Do not cd, just open login shell in home
+      ssh_cmd+=("$user@$host" -t "exec \$SHELL -l")
+    else
+      ssh_cmd+=("$user@$host" -t "cd \"$remote_path\"; exec \$SHELL -l")
+    fi
+
+    "${ssh_cmd[@]}"
     return $?
   fi
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   # Aplicar entorno si es tipo env
   if [[ "$type" == "env" ]]; then
