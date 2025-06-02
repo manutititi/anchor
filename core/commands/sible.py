@@ -21,7 +21,6 @@ def load_anchor(name):
 
 
 def build_inventory_multiple(anchors):
-    """Genera un inventario INI para múltiples hosts ssh."""
     lines = []
     for a in anchors:
         line = (
@@ -40,41 +39,39 @@ def build_inventory_multiple(anchors):
 
 
 def build_playbook(tasks):
-    """Combina múltiples plantillas como un único playbook, envolviéndolas en un único Play."""
     combined_tasks = []
 
     for task in tasks:
         template_name = task["template"]
 
-        # Soporte especial para template 'from_anchor'
         if template_name == "from_anchor":
             anchor_name = task.get("vars", {}).get("anchor")
             if not anchor_name:
                 raise ValueError("Se requiere 'vars.anchor' para usar el template 'from_anchor'")
             expanded = expand_from_anchor(anchor_name)
             combined_tasks.extend(expanded)
-            continue  # Salta el resto del ciclo
+            continue
 
         template_path = TEMPLATES_DIR / f"{template_name}.yml"
-
         if not template_path.exists():
             raise FileNotFoundError(f"Template '{template_name}.yml' not found in {TEMPLATES_DIR}")
 
         with open(template_path) as f:
-            content = f.read()
+            loaded = yaml.safe_load(f)
 
-        loaded = yaml.safe_load(content)
         override = task.get("override", {})
-
         if isinstance(loaded, list):
             for t in loaded:
+                if "vars" in task and isinstance(task["vars"], dict):
+                    t["vars"] = task["vars"]
                 t.update(override)
             combined_tasks.extend(loaded)
         elif isinstance(loaded, dict):
+            if "vars" in task and isinstance(task["vars"], dict):
+                loaded["vars"] = task["vars"]
             loaded.update(override)
             combined_tasks.append(loaded)
 
-    # Envolver todo en un único 'play'
     full_play = [{
         "name": "Ansible Play from anchor",
         "hosts": "all",
@@ -88,49 +85,7 @@ def build_playbook(tasks):
     return temp.name
 
 
-
-
-
-def build_vars_file(tasks):
-    merged_vars = {}
-
-    for task in tasks:
-        vars_ = task.get("vars", {})
-        for key, value in vars_.items():
-            if isinstance(value, list):
-                merged_vars[key] = value
-            elif isinstance(value, str) and value.strip().startswith('['):
-                try:
-                    parsed = json.loads(value)
-                    if isinstance(parsed, list):
-                        merged_vars[key] = parsed
-                    else:
-                        merged_vars[key] = [value]
-                except Exception:
-                    merged_vars[key] = [value]
-            elif isinstance(value, str):
-                merged_vars[key] = [value]
-            else:
-                merged_vars[key] = []
-
-    for key in merged_vars:
-        if not isinstance(merged_vars[key], list):
-            merged_vars[key] = [merged_vars[key]]
-
-    print("\n==== YAML generado para --extra-vars ====")
-    print(yaml.safe_dump(merged_vars, default_flow_style=False))
-    print("=========================================\n")
-
-    temp = NamedTemporaryFile(delete=False, mode='w', suffix='.yml')
-    yaml.safe_dump(merged_vars, temp, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    temp.close()
-    return temp.name
-
-
-
-
 def expand_from_anchor(anchor_name):
-    """Genera tasks Ansible a partir de un anchor tipo 'files', con directorios implícitos y respeto a 'become'."""
     anchor_path = DATA_DIR / f"{anchor_name}.json"
     if not anchor_path.exists():
         raise FileNotFoundError(f"Files anchor '{anchor_name}' no encontrado en {DATA_DIR}")
@@ -144,13 +99,10 @@ def expand_from_anchor(anchor_name):
     files = anchor_data.get("files", {})
     all_dirs = {}
 
-    # Recoger todos los directorios necesarios (explícitos e implícitos)
     for raw_path, props in files.items():
         raw_path = raw_path.strip()
-
         if props.get("type") == "directory":
             all_dirs[raw_path] = props.get("become", False)
-
         elif props.get("mode") == "replace":
             parent_dir = os.path.dirname(raw_path)
             if parent_dir not in all_dirs:
@@ -158,7 +110,6 @@ def expand_from_anchor(anchor_name):
 
     tasks = []
 
-    # Tareas para directorios, ordenadas para asegurar padres antes que hijos
     for d in sorted(all_dirs.keys(), key=len):
         tasks.append({
             "name": f"Ensure directory {d}",
@@ -170,7 +121,6 @@ def expand_from_anchor(anchor_name):
             "become": all_dirs[d]
         })
 
-    # Tareas para archivos
     for raw_path, props in files.items():
         raw_path = raw_path.strip()
         if props.get("mode") == "replace" and "content" in props:
@@ -188,11 +138,16 @@ def expand_from_anchor(anchor_name):
     return tasks
 
 
-
-
-
-
-
+def build_vars_file(tasks):
+    merged_vars = {}
+    for task in tasks:
+        vars_ = task.get("vars", {})
+        for key, value in vars_.items():
+            if key == "local_path" and isinstance(value, str) and value.startswith("~"):
+                merged_vars[key] = str(Path(value).expanduser())
+            else:
+                merged_vars[key] = value  # keep exact type
+    return merged_vars
 
 
 def handle_sible(args):
@@ -218,7 +173,26 @@ def handle_sible(args):
 
         inventory_file = build_inventory_multiple(host_anchors)
         playbook_file = build_playbook(play_anchor["ansible"]["tasks"])
-        vars_file = build_vars_file(play_anchor["ansible"]["tasks"])
+
+        merged_vars = build_vars_file(play_anchor["ansible"]["tasks"])
+        merged_vars["anchor"] = [play_anchor["name"]]
+        merged_vars["ssh_by_host"] = {
+            h["name"]: {
+                "host": h["host"],
+                "user": h["user"],
+                "port": h.get("port", 22),
+                "identity_file": resolve_path(h["identity_file"])
+            }
+            for h in host_anchors
+        }
+
+        print("\n==== YAML generado para --extra-vars ====")
+        print(yaml.safe_dump(merged_vars, default_flow_style=False))
+        print("=========================================\n")
+
+        vars_file = NamedTemporaryFile(delete=False, mode='w', suffix='.yml')
+        yaml.safe_dump(merged_vars, vars_file, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        vars_file.close()
 
         extra_options = play_anchor["ansible"].get("options", [])
         if not isinstance(extra_options, list):
@@ -228,13 +202,13 @@ def handle_sible(args):
             "ansible-playbook",
             "-i", inventory_file,
             playbook_file,
-            f"--extra-vars=@{vars_file}",
+            f"--extra-vars=@{vars_file.name}",
             *extra_options
         ], check=True)
 
     finally:
         for file in [locals().get("inventory_file"),
                      locals().get("playbook_file"),
-                     locals().get("vars_file")]:
+                     locals().get("vars_file").name if "vars_file" in locals() else None]:
             if file and os.path.exists(file):
                 os.remove(file)

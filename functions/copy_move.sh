@@ -12,10 +12,10 @@ anc_handle_copy_or_move() {
   local destination="${@: -1}"
   local sources=("${@:1:$#-1}")
 
+  # --- Preparar destino
   local dest_anchor="${destination%%/*}"
   local dest_subpath="${destination#*/}"
   [[ "$destination" == "$dest_anchor" ]] && dest_subpath=""
-
   local dest_meta="$ANCHOR_DIR/$dest_anchor.json"
   local dest_path=""
   local dest_is_ssh=false
@@ -33,7 +33,7 @@ anc_handle_copy_or_move() {
       local ssh_base=$(jq -r '.path // "~"' "$dest_meta")
 
       if [[ "$ssh_base" == "~" || -z "$ssh_base" ]]; then
-        dest_path="$dest_subpath"  # equivale a $HOME/subpath remoto
+        dest_path="$dest_subpath"
       else
         dest_path="$ssh_base"
         [[ -n "$dest_subpath" ]] && dest_path="$dest_path/$dest_subpath"
@@ -56,71 +56,69 @@ anc_handle_copy_or_move() {
   [[ "$dest_is_ssh" == false ]] && mkdir -p "$dest_path" || true
 
   for src in "${sources[@]}"; do
-    if [[ "$src" == */* && -f "$ANCHOR_DIR/${src%%/*}.json" ]]; then
-      local anchor="${src%%/*}"
-      local pattern="${src#*/}"
-      local anchor_path=$(jq -r '.path // empty' "$ANCHOR_DIR/$anchor.json")
-      [[ "$anchor_path" == ~* ]] && anchor_path="${anchor_path/#\~/$HOME}"
-      anchor_path=$(realpath -m "$anchor_path")
+    local src_anchor="${src%%/*}"
+    local src_subpath="${src#*/}"
+    [[ "$src" == "$src_anchor" ]] && src_subpath=""
 
-      shopt -s nullglob
-      local matched_files=("$anchor_path"/$pattern)
-      shopt -u nullglob
-
-      if [[ "${#matched_files[@]}" -eq 0 ]]; then
-        echo -e "${YELLOW}⚠️ No files matched pattern '$pattern' in anchor '$anchor'${RESET}"
-        continue
-      fi
-
-      for matched in "${matched_files[@]}"; do
-        if [[ "$cmd" == "mv" ]]; then
-          if [[ "$dest_is_ssh" == true ]]; then
-            rsync -az -e "ssh -i $ssh_key -p $ssh_port" "$matched" "$dest_rsync_target" && rm "$matched" && \
-              echo -e "${GREEN}✅ Moved '$matched' to '$dest_rsync_target'${RESET}"
-          else
-            mv "$matched" "$dest_path/" && echo -e "${GREEN}✅ Moved '$matched' to '$dest_path/'${RESET}"
-          fi
-        else
-          if [[ "$dest_is_ssh" == true ]]; then
-            rsync -az -e "ssh -i $ssh_key -p $ssh_port" "$matched" "$dest_rsync_target" && \
-              echo -e "${GREEN}✅ Copied '$matched' to '$dest_rsync_target'${RESET}"
-          else
-            rsync -a --progress "$matched" "$dest_path/" && echo -e "${GREEN}✅ Copied '$matched' to '$dest_path/'${RESET}"
-          fi
-        fi
-      done
-      continue
-    fi
-
+    local src_meta="$ANCHOR_DIR/$src_anchor.json"
+    local src_is_ssh=false
+    local src_ssh_prefix=""
+    local src_rsync_source=""
     local src_path=""
-    if [[ -f "$ANCHOR_DIR/$src.json" ]]; then
-      src_path=$(jq -r '.path // empty' "$ANCHOR_DIR/$src.json")
-      [[ "$src_path" == ~* ]] && src_path="${src_path/#\~/$HOME}"
-      src_path=$(realpath -m "$src_path")
+
+    if [[ -f "$src_meta" ]]; then
+      local src_type=$(jq -r '.type' "$src_meta")
+      if [[ "$src_type" == "ssh" ]]; then
+        src_is_ssh=true
+        local ssh_host=$(jq -r '.host' "$src_meta")
+        local ssh_user=$(jq -r '.user' "$src_meta")
+        local ssh_port=$(jq -r '.port // 22' "$src_meta")
+        local ssh_key=$(jq -r '.identity_file // empty' "$src_meta")
+        local ssh_base=$(jq -r '.path // "~"' "$src_meta")
+
+        if [[ "$ssh_base" == "~" || -z "$ssh_base" ]]; then
+          src_path="$src_subpath"
+        else
+          src_path="$ssh_base"
+          [[ -n "$src_subpath" ]] && src_path="$src_path/$src_subpath"
+          src_path=$(realpath -m "$src_path")
+        fi
+
+        src_ssh_prefix="${ssh_user}@${ssh_host}"
+        src_rsync_source="${src_ssh_prefix}:${src_path}"
+      else
+        src_path=$(jq -r '.path // empty' "$src_meta")
+        [[ "$src_path" == ~* ]] && src_path="${src_path/#\~/$HOME}"
+        src_path=$(realpath -m "$src_path")
+        [[ -n "$src_subpath" ]] && src_path="$src_path/$src_subpath"
+      fi
     else
       [[ "$src" == ~* ]] && src="${src/#\~/$HOME}"
       src_path=$(realpath -m "$src")
     fi
 
-    if [[ ! -e "$src_path" ]]; then
-      echo -e "${RED}❌ Source '$src' does not exist${RESET}"
-      return 1
+    if [[ "$src_is_ssh" == true && "$dest_is_ssh" == true ]]; then
+      echo -e "${RED}❌ Copying between two SSH anchors is not supported${RESET}"
+      continue
     fi
 
+    # ejecutar transferencia
     if [[ "$cmd" == "mv" ]]; then
-      if [[ "$dest_is_ssh" == true ]]; then
-        rsync -az -e "ssh -i $ssh_key -p $ssh_port" "$src_path" "$dest_rsync_target" && rm -rf "$src_path" && \
-          echo -e "${GREEN}✅ Moved '$src_path' to '$dest_rsync_target'${RESET}"
-      else
-        mv "$src_path" "$dest_path/" && echo -e "${GREEN}✅ Moved '$src_path' to '$dest_path/'${RESET}"
-      fi
+      echo -e "${YELLOW}⚠️ Remote 'mv' not supported yet. Use 'cp' and delete manually.${RESET}"
+    fi
+
+    if [[ "$src_is_ssh" == true ]]; then
+      # copiar desde remoto a local
+      rsync -az -e "ssh -i $ssh_key -p $ssh_port" "$src_rsync_source" "$dest_path/" && \
+        echo -e "${GREEN}✅ Copied '$src' to '$dest_path/'${RESET}"
+    elif [[ "$dest_is_ssh" == true ]]; then
+      # copiar desde local a remoto
+      rsync -az -e "ssh -i $ssh_key -p $ssh_port" "$src_path" "$dest_rsync_target" && \
+        echo -e "${GREEN}✅ Copied '$src_path' to '$dest_rsync_target'${RESET}"
     else
-      if [[ "$dest_is_ssh" == true ]]; then
-        rsync -az -e "ssh -i $ssh_key -p $ssh_port" "$src_path" "$dest_rsync_target" && \
-          echo -e "${GREEN}✅ Copied '$src_path' to '$dest_rsync_target'${RESET}"
-      else
-        rsync -a --progress "$src_path" "$dest_path/" && echo -e "${GREEN}✅ Copied '$src_path' to '$dest_path/'${RESET}"
-      fi
+      # local a local
+      rsync -a --progress "$src_path" "$dest_path/" && \
+        echo -e "${GREEN}✅ Copied '$src_path' to '$dest_path/'${RESET}"
     fi
   done
 }

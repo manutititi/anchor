@@ -1,0 +1,46 @@
+- name: Ensure remote_path {{ remote_path }} exists on {{ inventory_hostname }}
+  ansible.builtin.file:
+    path: "{{ remote_path }}"
+    state: directory
+    mode: "1777"
+  become: true
+
+- name: Ensure parent folder {{ local_path }}/{{ inventory_hostname }} exists
+  ansible.builtin.file:
+    path: "{{ local_path }}/{{ inventory_hostname }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: false
+
+- name: Ensure local mount folder exists for {{ inventory_hostname }}
+  ansible.builtin.file:
+    path: "{{ local_path }}/{{ inventory_hostname }}/command_logs"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: false
+
+- name: Debug SSHFS command before execution
+  ansible.builtin.debug:
+    msg: >
+      sshfs -o IdentityFile={{ ssh_by_host[inventory_hostname].identity_file }}
+            -o StrictHostKeyChecking=no
+            -p {{ ssh_by_host[inventory_hostname].port }}
+            {{ ssh_by_host[inventory_hostname].user }}@{{ ssh_by_host[inventory_hostname].host }}:{{ remote_path }}
+            {{ local_path }}/{{ inventory_hostname }}/command_logs
+  delegate_to: localhost
+  run_once: false
+
+- name: Mount SSHFS for {{ inventory_hostname }}
+  ansible.builtin.command: >
+    sshfs -o IdentityFile={{ ssh_by_host[inventory_hostname].identity_file }}
+          -o StrictHostKeyChecking=no
+          -p {{ ssh_by_host[inventory_hostname].port }}
+          {{ ssh_by_host[inventory_hostname].user }}@{{ ssh_by_host[inventory_hostname].host }}:{{ remote_path }}
+          {{ local_path }}/{{ inventory_hostname }}/command_logs
+  delegate_to: localhost
+  become: false
+  run_once: false
