@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import base64
 import urllib.request
@@ -119,13 +120,66 @@ def run_script_block(blocks, when="preload"):
         return
     print(f"\n🛠️  Executing {when} scripts...")
     for script in blocks:
-        cmd = script.get("run")
-        scope = script.get("scope", ".")
+        if isinstance(script, str):
+            cmd = script
+            scope = "."
+        else:
+            cmd = script.get("run")
+            scope = script.get("scope", ".")
+        
+        scope = os.path.expanduser(scope)  # Expande ~ a /home/user
+
         print(f" → cd {scope} && {cmd}")
         try:
             subprocess.run(cmd, cwd=scope, shell=True, check=True)
         except subprocess.CalledProcessError as e:
             print(red(f"❌ Script failed in {scope}: {e}"))
+
+
+
+
+
+def escalate_if_needed(files, target_path, anchor_name):
+    if os.geteuid() == 0:
+        return  # Ya somos root
+
+    privileged_paths = []
+    for rel_path in files:
+        is_absolute = rel_path.startswith("~") or rel_path.startswith("/")
+        dest = os.path.expanduser(rel_path) if is_absolute else os.path.join(target_path, rel_path)
+        if dest.startswith("/etc") or dest.startswith("/usr") or dest.startswith("/opt") or dest.startswith("/root") or dest.startswith("/dert"):
+            privileged_paths.append(dest)
+
+    if privileged_paths:
+        print(red("\n⚠️  Some files are located in protected system paths and require root permissions:\n"))
+        for path in privileged_paths:
+            print("   " + path)
+        print()
+        print(cyan("❓ Do you want to re-run with sudo using the Anchor venv?"))
+        choice = input(cyan("   [y/N]: ")).strip().lower()
+        if choice != "y":
+            print(red("❌ Aborted."))
+            sys.exit(1)
+
+        # Reinvocar el comando como sudo + python del venv con rutas absolutas
+        anchor_root = os.path.expanduser("~/.anchors")
+        venv_python = os.path.join(anchor_root, "venv", "bin", "python3")
+        main_py = os.path.join(anchor_root, "core", "main.py")
+
+        cmd = [
+            "sudo",
+            venv_python,
+            main_py,
+            "rc",
+            anchor_name,
+            target_path
+        ]
+        os.execvp("sudo", cmd)
+
+
+
+
+
 
 
 def recreate_from_anchor(anchor_name, target_path):
@@ -147,7 +201,10 @@ def recreate_from_anchor(anchor_name, target_path):
     if not files:
         print(red("❌ No files found to restore in anchor."))
         return
-
+    
+    
+    
+    escalate_if_needed(files, target_path, anchor_name)
 
 
     # SHOW PREVIEW
@@ -202,6 +259,9 @@ def recreate_from_anchor(anchor_name, target_path):
         else:
             dest = os.path.normpath(os.path.join(target_path, rel_path))
 
+        
+
+
         if file_data.get("type") == "directory":
             try:
                 os.makedirs(dest, exist_ok=True)
@@ -229,6 +289,20 @@ def recreate_from_anchor(anchor_name, target_path):
         else:
             write_file_from_content(dest, file_data)
 
+
+
+        # Restaurar permisos si se especificaron y el archivo fue cambiado
+        perm = file_data.get("perm")
+        if perm and os.path.isfile(dest):
+            try:
+                os.chmod(dest, int(perm, 8))
+            except Exception as e:
+                print(red(f"⚠️  Failed to apply permissions {perm} to {dest}: {e}"))
+
+
+
+
+
     if env_anchor:
         env_ref_path = os.path.abspath(os.path.join(target_path, ".anc_env"))
         try:
@@ -239,8 +313,7 @@ def recreate_from_anchor(anchor_name, target_path):
         except Exception as e:
             print(red(f"❌ Failed to write .anc_env: {e}"))
 
-    # Ejecutar postload si existe
-    run_script_block(scripts.get("postload"), "postload")
+    
 
     # Resumen final
     abs_paths = [p for p in files if p.startswith("~") or p.startswith("/")]
@@ -271,6 +344,11 @@ def recreate_from_anchor(anchor_name, target_path):
         print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored under: {cyan(target_path)}"))
     else:
         print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored to their original paths"))
+
+
+
+    # Ejecutar postload si existe
+    run_script_block(scripts.get("postload"), "postload")
 
 
 def run(args):

@@ -12,6 +12,42 @@ DATA_DIR = Path(resolve_path("~/.anchors/data"))
 TEMPLATES_DIR = Path(resolve_path("~/.anchors/templates"))
 
 
+
+
+
+def translate_script_block(scripts, when="preload"):
+    if not scripts:
+        return []
+
+    tasks = []
+
+    for s in scripts:
+        if isinstance(s, str):
+            cmd = s
+            scope = "."
+        else:
+            cmd = s.get("run")
+            scope = s.get("scope", ".")
+
+        # Traducir ~ → /home/{{ ansible_user }}
+        if scope.startswith("~"):
+            scope = scope.replace("~", "/home/{{ ansible_user }}", 1)
+
+        tasks.append({
+            "name": f"[{when}] {cmd}",
+            "ansible.builtin.shell": cmd,
+            "args": {"chdir": scope},
+            "become": scope.startswith("/etc") or scope.startswith("/usr") or scope.startswith("/opt") or scope.startswith("/var") or scope.startswith("/root")
+        })
+
+    return tasks
+
+
+
+
+
+
+
 def load_anchor(name):
     path = DATA_DIR / f"{name}.json"
     if not path.exists():
@@ -85,6 +121,8 @@ def build_playbook(tasks):
     return temp.name
 
 
+
+
 def expand_from_anchor(anchor_name):
     anchor_path = DATA_DIR / f"{anchor_name}.json"
     if not anchor_path.exists():
@@ -97,6 +135,7 @@ def expand_from_anchor(anchor_name):
         raise ValueError(f"Anchor '{anchor_name}' no es de tipo 'files'")
 
     files = anchor_data.get("files", {})
+    scripts = anchor_data.get("scripts", {})
     all_dirs = {}
 
     for raw_path, props in files.items():
@@ -110,32 +149,54 @@ def expand_from_anchor(anchor_name):
 
     tasks = []
 
+    # PRELOAD scripts
+    tasks += translate_script_block(scripts.get("preload"), "preload")
+
+    # Ensure directories
     for d in sorted(all_dirs.keys(), key=len):
+        dir_data = files.get(d, {})
+        perm = dir_data.get("perm", "0755")
+
         tasks.append({
             "name": f"Ensure directory {d}",
             "ansible.builtin.file": {
                 "path": d,
                 "state": "directory",
-                "mode": "0755"
+                "mode": perm
             },
             "become": all_dirs[d]
         })
 
+
+    # Copy files
     for raw_path, props in files.items():
         raw_path = raw_path.strip()
         if props.get("mode") == "replace" and "content" in props:
+            copy_task = {
+                "dest": raw_path,
+                "content": props["content"],
+                "force": True
+            }
+
+            if "perm" in props:
+                copy_task["mode"] = props["perm"]
+            else:
+                copy_task["mode"] = "0644"
+
             tasks.append({
                 "name": f"Write {os.path.basename(raw_path)}",
-                "ansible.builtin.copy": {
-                    "dest": raw_path,
-                    "content": props["content"],
-                    "force": True,
-                    "mode": "0644"
-                },
+                "ansible.builtin.copy": copy_task,
                 "become": props.get("become", False)
             })
+        
+
+    # POSTLOAD scripts
+    tasks += translate_script_block(scripts.get("postload"), "postload")
 
     return tasks
+
+
+
 
 
 def build_vars_file(tasks):

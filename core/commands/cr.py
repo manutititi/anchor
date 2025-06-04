@@ -6,6 +6,16 @@ from core.utils.colors import red, green, bold, cyan
 from core.utils.path import resolve_path, as_relative_to_home
 
 
+def get_file_perm(path):
+    try:
+        return format(os.stat(path).st_mode & 0o7777, "04o")
+    except Exception as e:
+        print(red(f"❌ Error getting permissions for {path}: {e}"))
+        return "0000"
+
+
+
+
 def encode_file(filepath):
     try:
         with open(filepath, "rb") as f:
@@ -87,6 +97,8 @@ def build_files_dict_from_paths(triplets, base_root=None):
                     "regex": "" if mode == "regex" else None,
                     "content": "" if blank or mode == "regex" else content
                 })
+                entry["perm"] = get_file_perm(resolved)
+
                 if mode != "regex":
                     entry.pop("regex", None)
                 files_dict[key] = entry
@@ -101,7 +113,8 @@ def build_files_dict_from_paths(triplets, base_root=None):
                     files_dict[key_root] = {
                         "type": "directory",
                         "mode": "ensure",
-                        "become": should_become(key_root)
+                        "become": should_become(key_root),
+                        "perm": get_file_perm(root)
                     }
 
                 for name in files:
@@ -121,6 +134,7 @@ def build_files_dict_from_paths(triplets, base_root=None):
                             "regex": "" if mode == "regex" else None,
                             "content": "" if blank or mode == "regex" else content
                         })
+                        entry["perm"] = get_file_perm(full_path)
                         if mode != "regex":
                             entry.pop("regex", None)
                         files_dict[key] = entry
@@ -171,6 +185,7 @@ def handle_cr(args):
     "path": "." if show_dot_as_root else (paths if len(paths) > 1 else paths[0]),
     "files": files_dict,
     "scripts": {
+        "_comment": "You can use simple strings or objects like {'run': 'command', 'scope': 'path'}",
         "preload": [],
         "postload": []
     },
