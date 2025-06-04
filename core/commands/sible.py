@@ -25,19 +25,26 @@ def translate_script_block(scripts, when="preload"):
         if isinstance(s, str):
             cmd = s
             scope = "."
+            become = False
         else:
             cmd = s.get("run")
             scope = s.get("scope", ".")
+            become = s.get("become")
 
         # Traducir ~ → /home/{{ ansible_user }}
         if scope.startswith("~"):
             scope = scope.replace("~", "/home/{{ ansible_user }}", 1)
 
+        if become is None:
+            become = scope.startswith((
+                "/etc", "/usr", "/opt", "/var", "/root"
+            ))
+
         tasks.append({
             "name": f"[{when}] {cmd}",
             "ansible.builtin.shell": cmd,
             "args": {"chdir": scope},
-            "become": scope.startswith("/etc") or scope.startswith("/usr") or scope.startswith("/opt") or scope.startswith("/var") or scope.startswith("/root")
+            "become": become
         })
 
     return tasks

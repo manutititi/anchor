@@ -185,7 +185,7 @@ def handle_cr(args):
     "path": "." if show_dot_as_root else (paths if len(paths) > 1 else paths[0]),
     "files": files_dict,
     "scripts": {
-        "_comment": "You can use simple strings or objects like {'run': 'command', 'scope': 'path'}",
+        "_comment": "You can use simple strings or objects like {'run': 'command', 'scope': 'path', 'become': 'true'}",
         "preload": [],
         "postload": []
     },
