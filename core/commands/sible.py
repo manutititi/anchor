@@ -85,6 +85,12 @@ def build_playbook(tasks):
     combined_tasks = []
 
     for task in tasks:
+        #  Si es una task ya expandida (como desde expand_from_anchor)
+        if "ansible.builtin.copy" in task or "ansible.builtin.file" in task or "ansible.builtin.shell" in task:
+            combined_tasks.append(task)
+            continue
+
+        #  Aquí asumimos que es una task de plantilla (tipo "ansible")
         template_name = task["template"]
 
         if template_name == "from_anchor":
@@ -126,6 +132,7 @@ def build_playbook(tasks):
     yaml.safe_dump(full_play, temp, default_flow_style=False, sort_keys=False, allow_unicode=True)
     temp.close()
     return temp.name
+
 
 
 
@@ -221,10 +228,12 @@ def build_vars_file(tasks):
 def handle_sible(args):
     try:
         play_anchor = load_anchor(args.anchor)
+        anchor_type = play_anchor.get("type")
 
-        if play_anchor["type"] != "ansible":
-            raise ValueError("El anchor debe ser de tipo 'ansible'")
+        if anchor_type not in ["ansible", "files"]:
+            raise ValueError("El anchor debe ser de tipo 'ansible' o 'files'")
 
+        # Cargar hosts
         if hasattr(args, "filter") and args.filter:
             matched = anchor_filter.filter_anchors(args.filter)
             host_anchors = [v for v in matched.values() if v.get("type") == "ssh"]
@@ -234,15 +243,24 @@ def handle_sible(args):
             host_names = [h.strip() for h in args.host.split(",")]
             host_anchors = [load_anchor(h) for h in host_names]
             for h in host_anchors:
-                if h["type"] != "ssh":
+                if h.get("type") != "ssh":
                     raise ValueError(f"El host '{h['name']}' no es de tipo ssh")
         else:
             raise ValueError("Debes especificar uno o varios hosts, o usar -f para filtrar por metadatos.")
 
         inventory_file = build_inventory_multiple(host_anchors)
-        playbook_file = build_playbook(play_anchor["ansible"]["tasks"])
 
-        merged_vars = build_vars_file(play_anchor["ansible"]["tasks"])
+        # Construir tasks dependiendo del tipo de anchor
+        if anchor_type == "ansible":
+            tasks = play_anchor["ansible"]["tasks"]
+            extra_options = play_anchor["ansible"].get("options", [])
+        elif anchor_type == "files":
+            tasks = expand_from_anchor(args.anchor)
+            extra_options = []
+
+        playbook_file = build_playbook(tasks)
+
+        merged_vars = build_vars_file(tasks)
         merged_vars["anchor"] = [play_anchor["name"]]
         merged_vars["ssh_by_host"] = {
             h["name"]: {
@@ -262,7 +280,6 @@ def handle_sible(args):
         yaml.safe_dump(merged_vars, vars_file, default_flow_style=False, allow_unicode=True, sort_keys=False)
         vars_file.close()
 
-        extra_options = play_anchor["ansible"].get("options", [])
         if not isinstance(extra_options, list):
             raise ValueError("El campo 'options' debe ser una lista (ej: [\"-v\", \"--check\"])")
 
