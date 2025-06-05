@@ -12,18 +12,6 @@ CYAN="\033[1;36m"
 
 echo -e "📦 Installing Anchor system to: ${GREEN}$ANCHOR_HOME${RESET}"
 
-# yq
-if ! command -v yq >/dev/null 2>&1; then
-  echo -e "${YELLOW}🔧 'yq' not found. Installing via snap...${RESET}"
-  if command -v sudo >/dev/null && command -v snap >/dev/null; then
-    sudo snap install yq
-  else
-    echo -e "${RED}❌ Could not install 'yq'. Please install it manually${RESET}"
-    exit 1
-  fi
-else
-  echo -e "${GREEN}✅ 'yq' already installed.${RESET}"
-fi
 
 # jq
 if ! command -v jq >/dev/null 2>&1; then
@@ -93,6 +81,8 @@ ldap3
 PyYAML
 requests
 ldif
+jinja2
+simpleeval
 EOF
   echo -e "${YELLOW}📦 Default requirements.txt created${RESET}"
 fi

@@ -85,12 +85,12 @@ def build_playbook(tasks):
     combined_tasks = []
 
     for task in tasks:
-        #  Si es una task ya expandida (como desde expand_from_anchor)
+        # Si es una task ya expandida (como desde expand_from_anchor)
         if "ansible.builtin.copy" in task or "ansible.builtin.file" in task or "ansible.builtin.shell" in task:
             combined_tasks.append(task)
             continue
 
-        #  Aquí asumimos que es una task de plantilla (tipo "ansible")
+        # Aquí asumimos que es una task de plantilla (tipo "ansible")
         template_name = task["template"]
 
         if template_name == "from_anchor":

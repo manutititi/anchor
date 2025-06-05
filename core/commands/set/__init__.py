@@ -1,6 +1,6 @@
 # core/commands/set/__init__.py
 
-from core.commands.set import env, url, ldap, local, server, ssh, ansible
+from core.commands.set import env, url, ldap, local, server, ssh, ansible, workflow
 
 def run(args):
     if args.server:
@@ -15,4 +15,7 @@ def run(args):
         return ssh.run(args)
     elif args.ansible:
         return ansible.run(args)
+    elif args.workflow:
+        return workflow.run(args)
+    
     return local.run(args)

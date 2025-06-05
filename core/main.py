@@ -20,6 +20,7 @@ from core.commands.edit import handle_edit
 from core.commands.doc import generate_doc
 from core.commands import secret
 from core.commands import rc
+from core.commands import wf
 
 
 
@@ -69,6 +70,9 @@ def main():
         # ansible
     set_parser.add_argument("--ansible", help="Create an Ansible anchor (name only)")
     set_parser.add_argument("--templates", "-t", nargs="+", help="Templates to include in the Ansible tasks")
+
+        # wf
+    set_parser.add_argument("--workflow", metavar="NAME", help="Create a workflow anchor")
 
 
     set_parser.set_defaults(func=set_cmd.run)
@@ -227,6 +231,13 @@ def main():
     
 
 
+
+
+
+    ## wf
+    parser_wf = subparsers.add_parser("wf")
+    parser_wf.add_argument("anchor")
+    parser_wf.set_defaults(func=wf.handle_wf)
 
 
 
