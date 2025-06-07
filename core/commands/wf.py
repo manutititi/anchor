@@ -1,3 +1,4 @@
+#core/commands/wf.py
 import json
 import time
 import subprocess
@@ -5,6 +6,11 @@ from pathlib import Path
 from jinja2 import Template
 from core.utils.path import resolve_path
 from core.utils.colors import red, green, cyan, bold
+from typing import List, Union
+import tempfile
+import re
+import os
+
 
 DATA_DIR = Path(resolve_path("~/.anchors/data"))
 
@@ -27,27 +33,75 @@ def render(template_str, context):
 
 
 
-def execute_with_input_auto(command: str, inputs: list[str], cwd: str = None):
-    import tempfile
+def run_rc(anchor_name, vars={}):
+    anchor_path = os.path.join("data", f"{anchor_name}.json")
+    if not os.path.exists(anchor_path):
+        print(f"⚠️  Anchor '{anchor_name}' not found at {anchor_path}")
+        return 1
 
-    # Generar script expect dinámicamente
-    script_lines = [f"spawn {command}"]
-    for value in inputs:
-        script_lines.append('expect { -re ".*:" { send "' + value + '\\r" } }')
+    with open(anchor_path) as f:
+        data = json.load(f)
+
+    if data.get("type") != "files":
+        print(f"⚠️  Anchor '{anchor_name}' is not of type 'files'")
+        return 1
+
+    files = data.get("files", {})
+    rendered = {}
+
+    for path, meta in files.items():
+        rendered_path = Template(path).render(**vars)
+        rendered[rendered_path] = {}
+
+        for k, v in meta.items():
+            if isinstance(v, str):
+                rendered[rendered_path][k] = Template(v).render(**vars)
+            else:
+                rendered[rendered_path][k] = v
+
+    # ✅ Importar desde rc (no desde cr)
+    from core.commands.rc import apply_file_tasks
+    return apply_file_tasks(rendered)
+
+
+
+def execute_with_input_auto(command: str, inputs: List[Union[str, dict]], cwd: str = None, timeout: int = 15):
+    # Generar script expect robusto
+    script_lines = [f"spawn -noecho {command}"]
+
+    for entry in inputs:
+        if isinstance(entry, dict):
+            for pattern, value in entry.items():
+                script_lines.append(f'expect "{pattern}"')
+                script_lines.append(f'send "{value}\\r"')
+        else:
+            # patrón genérico si no se especifica
+            script_lines.append('expect ".*:"')
+            script_lines.append(f'send "{entry}\\r"')
+
     script_lines.append("expect eof")
 
-    # Crear archivo temporal con el script
     with tempfile.NamedTemporaryFile("w", suffix=".exp", delete=False) as temp:
         temp.write("\n".join(script_lines))
         temp_path = temp.name
 
-    # Ejecutar el script expect
-    result = subprocess.run(["expect", temp_path], cwd=cwd, capture_output=True, text=True)
-
-    # Limpiar
-    Path(temp_path).unlink(missing_ok=True)
+    try:
+        result = subprocess.run(
+            ["expect", temp_path],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        return 1, '', 'Timed out waiting for expected input.'
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
 
     return result.returncode, result.stdout, result.stderr
+
+
+
 
 
 
@@ -86,7 +140,6 @@ def extract_output_field(task):
             return key, task[key], append
     return None, None, False
 
-
 def execute_task(task, global_vars, task_results):
     task_vars = task.get("vars", {})
     merged_vars = {**global_vars, **task_vars, **task_results}
@@ -98,15 +151,24 @@ def execute_task(task, global_vars, task_results):
         iterations = expand_loop(task["loop"], merged_vars)
         for idx, loop_vars in enumerate(iterations, 1):
             context = {**merged_vars, **loop_vars}
+
+            # Inicializar caché compartido por tareas
+            if "_input_cache" not in global_vars:
+                global_vars["_input_cache"] = {}
+            context["_input_cache"] = global_vars["_input_cache"]
+
             loop_name = render(task.get("name", "Unnamed task"), context)
             if not _should_run(task, context):
                 print(cyan(f"  • {loop_name} [loop {idx}/{len(iterations)}] skipped"))
                 continue
             print(bold(f"  • {loop_name} [loop {idx}/{len(iterations)}]"))
             retcode, stdout, stderr = _execute_single(task, context, output_file=output_file, append=append)
+
+            # Registrar resultados y actualizar variables globales
             if register_key:
                 task_results[register_key] = stdout.strip() if stdout is not None else ''
-        print()  # espacio después de completar el loop
+            global_vars.update({k: v for k, v in context.items() if k not in global_vars})
+        print()  # espacio después del loop
     else:
         if not _should_run(task, merged_vars):
             print(cyan(f"  • {name} skipped"))
@@ -116,13 +178,25 @@ def execute_task(task, global_vars, task_results):
                 task_results[task['id']] = 0
             print()
             return
+
+        # Inicializar caché compartido
+        if "_input_cache" not in global_vars:
+            global_vars["_input_cache"] = {}
+        merged_vars["_input_cache"] = global_vars["_input_cache"]
+
         print(bold(f"  • {name}"))
         retcode, stdout, stderr = _execute_single(task, merged_vars, output_file=output_file, append=append)
+
         if register_key:
             task_results[register_key] = stdout.strip() if stdout is not None else ''
         else:
             task_results[task['id']] = retcode
-        print()  # espacio después de la tarea
+
+        # Actualizar global_vars con nuevas entradas definidas en el contexto
+        global_vars.update({k: v for k, v in merged_vars.items() if k not in global_vars})
+        print()
+
+
 
 
 def _should_run(task, context):
@@ -149,6 +223,7 @@ def _write_output(path, mode, stdout, stderr):
 def _execute_single(task, context, output_file=None, append=False):
     mode = "a" if append else "w"
     cwd = None
+
     if "chdir" in task:
         cwd_path = render(task["chdir"], context)
         cwd = str(Path(cwd_path).expanduser())
@@ -164,46 +239,76 @@ def _execute_single(task, context, output_file=None, append=False):
         return 0, '', ''
 
     if "shell" in task:
-        cmd = render(task["shell"], context)
+        cmd_template = task["shell"]
 
-        # Soporte para comandos interactivos con input_auto
+        if "{{" in cmd_template:
+            print(f"    🔍 Comando con variables: {cmd_template}")
+
+        # Inicializar cache de input
+        if "_input_cache" not in context:
+            context["_input_cache"] = {}
+        input_cache = context["_input_cache"]
+
+        # Detectar variables {{ var }}
+        undefined_vars = re.findall(r"{{\s*([\w_]+)\s*}}", cmd_template)
+        for var in undefined_vars:
+            if var not in context:
+                if var in input_cache:
+                    context[var] = input_cache[var]
+                else:
+                    user_input = input(f"    🧩 Var '{var}' not defined, insert a value: ").strip()
+                    context[var] = user_input
+                    input_cache[var] = user_input
+
+        cmd = render(cmd_template, context)
+
         if "input_auto" in task:
-            inputs = [render(x, context) for x in task["input_auto"]]
+            inputs = []
+            for x in task["input_auto"]:
+                if isinstance(x, dict):
+                    rendered_entry = {render(k, context): render(v, context) for k, v in x.items()}
+                    inputs.append(rendered_entry)
+                else:
+                    inputs.append(render(x, context))
             print(cyan(f"    → shell (input_auto): {cmd}"))
             return execute_with_input_auto(cmd, inputs, cwd=cwd)
 
         print(cyan(f"    → shell: {cmd}"))
         result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
 
-        # Solo guardar salida si se redirige
         if output_file and (result.stdout or result.stderr):
             _write_output(output_file, mode, result.stdout, result.stderr)
 
-        # Mostrar stdout si NO hay register ni redirección
         if not output_file and not task.get("register") and result.stdout:
             print(result.stdout.strip())
 
         return result.returncode, result.stdout, result.stderr
 
-
-    if "anc" in task:
+    elif "anc" in task:
         cmd = render(task["anc"], context)
         print(cyan(f"    → anc: {cmd}"))
         source_functions = 'for f in "$HOME/.anchors/functions/"*.sh; do source "$f"; done'
         full_cmd = f"{source_functions} && anc {cmd}"
-
-        # ❌ NO capturamos salida → se comporta como shell real
         result = subprocess.run(["bash", "-i", "-c", full_cmd], cwd=cwd)
-
-        # Solo escribir output si se pidió
         if output_file:
             print(red("⚠️ Output redirection not supported in interactive mode (anc task)"))
-
-        # Mostrar error explícito si falla
         if result.returncode != 0:
             print(red(f"    ❌ anc command failed with code {result.returncode}"))
-
         return result.returncode, '', ''
+
+    elif "files" in task:
+        anchor_name = render(task["files"], context)
+        print(cyan(f"    → files: applying anchor '{anchor_name}' with context"))
+        returncode = run_rc(anchor_name, context)
+        return returncode, "", ""
+
+    return 0, '', ''
+
+
+
+
+
+
 
 
 

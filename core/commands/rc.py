@@ -1,3 +1,5 @@
+#core/commands/rc.py
+
 import os
 import sys
 import json
@@ -8,9 +10,36 @@ import hashlib
 import subprocess
 from core.utils.colors import red, green, cyan, bold
 from core.utils.path import resolve_path
+from pathlib import Path
+
 
 skipped_files = []
 changed_files = []
+
+
+
+
+
+def apply_file_tasks(files: dict):
+    for path, meta in files.items():
+        if meta.get("type") == "directory":
+            Path(path).mkdir(parents=True, exist_ok=True)
+            if "perm" in meta:
+                os.chmod(path, int(meta["perm"], 8))
+        else:
+            content = meta.get("content", "")
+            mode = meta.get("mode", "replace")
+            encoding = meta.get("encoding", "plain")
+            perm = meta.get("perm", "0644")
+
+            if mode == "replace":
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+                os.chmod(path, int(perm, 8))
+    return 0
+
+
 
 def resolve_url_from_ref(ref, path):
     anchor_dir = os.environ.get("ANCHOR_DIR", "data")
