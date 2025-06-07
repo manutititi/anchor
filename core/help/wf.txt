@@ -1,0 +1,76 @@
+anc wf <anchor> [--vars key=value ...]
+
+Execute a declarative workflow defined in a workflow-type anchor.
+
+Workflows allow automation through shell commands, anc calls, loops,
+conditions and variable substitution (Jinja2).
+
+Examples:
+  anc wf myflow
+    → Runs all tasks defined in the workflow anchor
+
+
+Options:
+  <anchor>               Anchor name (must be of type 'workflow')
+
+Behavior:
+  - Tasks are executed in the order they are defined
+  - Variables can be interpolated using {{ var }}
+  - 'loop' supports lists or Python-style list comprehensions
+  - 'when' conditions are evaluated using Python
+  - Output redirection is supported using 'output>>'
+  - 'register' allows storing stdout as a variable
+
+Notes:
+  - All expressions are evaluated with access to global vars and registered results (will be corrected in next upgrade)
+  - This system is powerful but not sandboxed: expressions are eval-ed in Python
+  - Ideal for lightweight automation, scripting and orchestrating technical flows
+
+
+JSON Example:
+
+Example:
+{
+  "type": "workflow",
+  "name": "myflow",
+  "vars": {
+    "base_dir": "/tmp/project",
+    "enabled": "yes"
+  },
+  "workflow": {
+    "tasks": [
+      {
+        "id": "task_1",
+        "name": "Create working dir",
+        "shell": "mkdir -p {{ base_dir }}"
+      },
+      {
+        "id": "task_2",
+        "name": "List files in dir",
+        "shell": "ls -la {{ base_dir }}",
+        "when": "enabled == 'yes'",
+        "output>>": "{{ base_dir }}/listing.log"
+      },
+      {
+        "id": "task_3",
+        "name": "Register current user",
+        "shell": "whoami",
+        "when": "task_2 == 0"
+        "register": "current_user"
+      },
+      {
+        "id": "task_4",
+        "name": "Use registered variable",
+        "shell": "echo User is {{ current_user }}"
+      },
+      {
+        "id": "task_5",
+        "name": "Loop over numbers",
+        "loop": {
+          "n": "[i for i in range(1, 4)]"
+        },
+        "shell": "echo Number: {{ n }}"
+      }
+    ]
+  }
+}

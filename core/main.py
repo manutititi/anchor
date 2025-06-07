@@ -235,7 +235,7 @@ def main():
 
 
     ## wf
-    parser_wf = subparsers.add_parser("wf")
+    parser_wf = subparsers.add_parser("wf", description=load_help("wf"), formatter_class=argparse.RawTextHelpFormatter, usage=argparse.SUPPRESS)
     parser_wf.add_argument("anchor")
     parser_wf.set_defaults(func=wf.handle_wf)
 

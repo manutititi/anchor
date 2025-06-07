@@ -138,8 +138,15 @@ def _execute_single(task, context, output_file=None, append=False):
         cmd = render(task["shell"], context)
         print(cyan(f"    → shell: {cmd}"))
         result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
+
+        # Solo guardar salida si se redirige
         if output_file and (result.stdout or result.stderr):
             _write_output(output_file, mode, result.stdout, result.stderr)
+
+        #  Mostrar stdout si NO hay register ni redirección
+        if not output_file and not task.get("register") and result.stdout:
+            print(result.stdout.strip())
+
         return result.returncode, result.stdout, result.stderr
 
     if "anc" in task:
