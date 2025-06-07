@@ -24,6 +24,35 @@ def render(template_str, context):
     return Template(template_str).render(**context)
 
 
+
+
+
+def execute_with_input_auto(command: str, inputs: list[str], cwd: str = None):
+    import tempfile
+
+    # Generar script expect dinámicamente
+    script_lines = [f"spawn {command}"]
+    for value in inputs:
+        script_lines.append('expect { -re ".*:" { send "' + value + '\\r" } }')
+    script_lines.append("expect eof")
+
+    # Crear archivo temporal con el script
+    with tempfile.NamedTemporaryFile("w", suffix=".exp", delete=False) as temp:
+        temp.write("\n".join(script_lines))
+        temp_path = temp.name
+
+    # Ejecutar el script expect
+    result = subprocess.run(["expect", temp_path], cwd=cwd, capture_output=True, text=True)
+
+    # Limpiar
+    Path(temp_path).unlink(missing_ok=True)
+
+    return result.returncode, result.stdout, result.stderr
+
+
+
+
+
 def expand_loop(task_loop, context):
     if isinstance(task_loop, list):
         return task_loop
@@ -136,6 +165,13 @@ def _execute_single(task, context, output_file=None, append=False):
 
     if "shell" in task:
         cmd = render(task["shell"], context)
+
+        # Soporte para comandos interactivos con input_auto
+        if "input_auto" in task:
+            inputs = [render(x, context) for x in task["input_auto"]]
+            print(cyan(f"    → shell (input_auto): {cmd}"))
+            return execute_with_input_auto(cmd, inputs, cwd=cwd)
+
         print(cyan(f"    → shell: {cmd}"))
         result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
 
@@ -143,24 +179,33 @@ def _execute_single(task, context, output_file=None, append=False):
         if output_file and (result.stdout or result.stderr):
             _write_output(output_file, mode, result.stdout, result.stderr)
 
-        #  Mostrar stdout si NO hay register ni redirección
+        # Mostrar stdout si NO hay register ni redirección
         if not output_file and not task.get("register") and result.stdout:
             print(result.stdout.strip())
 
         return result.returncode, result.stdout, result.stderr
+
 
     if "anc" in task:
         cmd = render(task["anc"], context)
         print(cyan(f"    → anc: {cmd}"))
         source_functions = 'for f in "$HOME/.anchors/functions/"*.sh; do source "$f"; done'
         full_cmd = f"{source_functions} && anc {cmd}"
-        result = subprocess.run(["bash", "-i", "-c", full_cmd], cwd=cwd, capture_output=True, text=True)
-        if output_file and (result.stdout or result.stderr):
-            _write_output(output_file, mode, result.stdout, result.stderr)
-        return result.returncode, result.stdout, result.stderr
 
-    print(red("    → Unrecognized task"))
-    return 1, '', ''
+        # ❌ NO capturamos salida → se comporta como shell real
+        result = subprocess.run(["bash", "-i", "-c", full_cmd], cwd=cwd)
+
+        # Solo escribir output si se pidió
+        if output_file:
+            print(red("⚠️ Output redirection not supported in interactive mode (anc task)"))
+
+        # Mostrar error explícito si falla
+        if result.returncode != 0:
+            print(red(f"    ❌ anc command failed with code {result.returncode}"))
+
+        return result.returncode, '', ''
+
+
 
 
 def handle_wf(args):
