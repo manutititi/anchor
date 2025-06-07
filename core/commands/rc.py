@@ -12,7 +12,6 @@ from core.utils.colors import red, green, cyan, bold
 from core.utils.path import resolve_path
 from pathlib import Path
 
-
 skipped_files = []
 changed_files = []
 

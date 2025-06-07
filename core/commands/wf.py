@@ -34,7 +34,9 @@ def render(template_str, context):
 
 
 def run_rc(anchor_name, vars={}):
-    anchor_path = os.path.join("data", f"{anchor_name}.json")
+    anchor_dir = os.environ.get("ANCHOR_DIR", "data")
+    anchor_path = os.path.join(anchor_dir, f"{anchor_name}.json")
+
     if not os.path.exists(anchor_path):
         print(f"⚠️  Anchor '{anchor_name}' not found at {anchor_path}")
         return 1
