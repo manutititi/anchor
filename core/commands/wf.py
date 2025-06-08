@@ -10,6 +10,7 @@ from typing import List, Union
 import tempfile
 import re
 import os
+import sys
 
 
 DATA_DIR = Path(resolve_path("~/.anchors/data"))
@@ -32,38 +33,98 @@ def render(template_str, context):
 
 
 
+def escalate_if_needed_for_wf(tasks):
+    if os.geteuid() == 0:
+        return
 
-def run_rc(anchor_name, vars={}):
-    anchor_dir = os.environ.get("ANCHOR_DIR", "data")
-    anchor_path = os.path.join(anchor_dir, f"{anchor_name}.json")
+    privileged_paths = []
 
-    if not os.path.exists(anchor_path):
-        print(f"⚠️  Anchor '{anchor_name}' not found at {anchor_path}")
-        return 1
+    for task in tasks:
+        if not task.get("files"):
+            continue
+        anchor_name = task["files"]
+        try:
+            raw, _ = load_anchor(anchor_name)
+            anchor = json.loads(raw)
+        except Exception as e:
+            print(red(f"❌ Error loading anchor '{anchor_name}': {e}"))
+            continue
 
-    with open(anchor_path) as f:
-        data = json.load(f)
+        if anchor.get("type") != "files":
+            continue
+
+        for path_template, meta in anchor.get("files", {}).items():
+            become = meta.get("become", False)
+            if become is True or path_template.startswith(("/etc", "/usr", "/opt", "/root", "/testing")):
+                privileged_paths.append(path_template)
+
+    if privileged_paths:
+        print(red("\n⚠️  This workflow modifies files that require root permissions:\n"))
+        for path in privileged_paths:
+            print("   " + path)
+        print()
+        print(cyan("❓ Do you want to re-run the entire workflow with sudo?"))
+        choice = input(cyan("   [y/N]: ")).strip().lower()
+        if choice != "y":
+            print(red("❌ Aborted by user."))
+            sys.exit(1)
+
+        venv_python = os.path.expanduser("~/.anchors/venv/bin/python3")
+        main_py = os.path.expanduser("~/.anchors/core/main.py")
+        anchor_arg = sys.argv[sys.argv.index("wf") + 1] if "wf" in sys.argv else ""
+        env = os.environ.copy()
+        env["WF_NONINTERACTIVE"] = "1"
+
+        cmd = ["sudo", "-E", venv_python, main_py, "wf", anchor_arg]
+        os.execve("/usr/bin/sudo", cmd, env)
+
+
+
+
+
+def run_rc(anchor_name, context={}):
+    from core.commands.rc import recreate_from_anchor
+    import tempfile
+
+    # Cargar anchor original
+    raw, _ = load_anchor(anchor_name)
+    data = json.loads(raw)
 
     if data.get("type") != "files":
         print(f"⚠️  Anchor '{anchor_name}' is not of type 'files'")
         return 1
 
     files = data.get("files", {})
-    rendered = {}
+    rendered_files = {}
 
-    for path, meta in files.items():
-        rendered_path = Template(path).render(**vars)
-        rendered[rendered_path] = {}
+    for path_template, meta in files.items():
+        rendered_path = Template(path_template).render(**context)
+        rendered_meta = {}
 
         for k, v in meta.items():
             if isinstance(v, str):
-                rendered[rendered_path][k] = Template(v).render(**vars)
+                rendered_meta[k] = Template(v).render(**context)
             else:
-                rendered[rendered_path][k] = v
+                rendered_meta[k] = v
 
-    # ✅ Importar desde rc (no desde cr)
-    from core.commands.rc import apply_file_tasks
-    return apply_file_tasks(rendered)
+        rendered_files[rendered_path] = rendered_meta
+
+    # Construir anchor temporal
+    data["files"] = rendered_files
+    data["name"] = f"{anchor_name}__tmp__{context.get('usuario', '')}"
+
+    # Guardar a archivo temporal y aplicar como recreate_from_anchor
+    with tempfile.TemporaryDirectory() as tmpdir:
+        anchor_file = os.path.join(tmpdir, f"{anchor_name}.json")
+        with open(anchor_file, "w") as f:
+            json.dump(data, f, indent=2)
+
+        os.environ["ANCHOR_DIR"] = tmpdir
+        recreate_from_anchor(anchor_name, context.get("target_path", "."))
+        return 0
+
+
+
 
 
 
@@ -324,6 +385,11 @@ def handle_wf(args):
 
     global_vars = data.get("vars", {})
     tasks = data.get("workflow", {}).get("tasks", [])
+
+    # 🔐 Escalado anticipado si alguna tarea necesita root
+    escalate_if_needed_for_wf(tasks)
+
+    # Verificar y asignar IDs si faltan
     any_missing = False
     for i, task in enumerate(tasks, 1):
         if "id" not in task:

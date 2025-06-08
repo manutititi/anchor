@@ -194,15 +194,17 @@ def escalate_if_needed(files, target_path, anchor_name):
         venv_python = os.path.join(anchor_root, "venv", "bin", "python3")
         main_py = os.path.join(anchor_root, "core", "main.py")
 
+        # Asegurar que ANCHOR_DIR se propaga
+        anchor_dir = os.environ.get("ANCHOR_DIR", os.path.join(anchor_root, "data"))
+        env = os.environ.copy()
+        env["ANCHOR_DIR"] = anchor_dir
+
         cmd = [
-            "sudo",
-            venv_python,
-            main_py,
-            "rc",
-            anchor_name,
-            target_path
+            "sudo", "-E", venv_python, main_py, "rc", anchor_name, target_path
         ]
-        os.execvp("sudo", cmd)
+
+        os.execve("/usr/bin/sudo", cmd, env)
+
 
 
 
@@ -229,11 +231,8 @@ def recreate_from_anchor(anchor_name, target_path):
     if not files:
         print(red("❌ No files found to restore in anchor."))
         return
-    
-    
-    
-    escalate_if_needed(files, target_path, anchor_name)
 
+    escalate_if_needed(files, target_path, anchor_name)
 
     # SHOW PREVIEW
     preview_changes = []
@@ -265,14 +264,17 @@ def recreate_from_anchor(anchor_name, target_path):
         print(cyan("\n📝 The following files will be created or modified:\n"))
         for line in preview_changes:
             print("   " + line)
-        choice = input(cyan("\n❓ Continue with these changes? [y/N]: ")).strip().lower()
-        if choice != "y":
-            print(red("❌ Aborted by user."))
-            return
+
+        if os.environ.get("WF_NONINTERACTIVE") == "1":
+            print(cyan("\n✔️ Skipping confirmation because workflow is running in escalated mode.\n"))
+        else:
+            choice = input(cyan("\n❓ Continue with these changes? [y/N]: ")).strip().lower()
+            if choice != "y":
+                print(red("❌ Aborted by user."))
+                return
     else:
         print(green("✅ Nothing to do — all files already match."))
         return
-
 
     # Ejecutar preload si existe
     run_script_block(scripts.get("preload"), "preload")
@@ -282,13 +284,7 @@ def recreate_from_anchor(anchor_name, target_path):
     for rel_path, file_data in files.items():
         is_absolute = rel_path.startswith("~") or rel_path.startswith("/")
 
-        if is_absolute:
-            dest = os.path.normpath(os.path.expanduser(rel_path))
-        else:
-            dest = os.path.normpath(os.path.join(target_path, rel_path))
-
-        
-
+        dest = os.path.normpath(os.path.expanduser(rel_path)) if is_absolute else os.path.normpath(os.path.join(target_path, rel_path))
 
         if file_data.get("type") == "directory":
             try:
@@ -317,15 +313,53 @@ def recreate_from_anchor(anchor_name, target_path):
         else:
             write_file_from_content(dest, file_data)
 
-
-
-        # Restaurar permisos si se especificaron y el archivo fue cambiado
         perm = file_data.get("perm")
         if perm and os.path.isfile(dest):
             try:
                 os.chmod(dest, int(perm, 8))
             except Exception as e:
                 print(red(f"⚠️  Failed to apply permissions {perm} to {dest}: {e}"))
+
+    if env_anchor:
+        env_ref_path = os.path.abspath(os.path.join(target_path, ".anc_env"))
+        try:
+            with open(env_ref_path, "w") as f:
+                f.write(env_anchor.strip() + "\n")
+            print(green(f"🔗 Environment anchor reference created at {cyan(env_ref_path)}"))
+            changed_files.append(env_ref_path)
+        except Exception as e:
+            print(red(f"❌ Failed to write .anc_env: {e}"))
+
+    print()
+
+    if changed_files:
+        print(green("✅ Modified or created:"))
+        for path in changed_files:
+            if os.path.isdir(path) and os.path.exists(path):
+                print(f"[DIR]   {path}")
+            else:
+                print(f"        {path}")
+
+    if skipped_files:
+        print(cyan("⏭️  Skipped (already up to date):"))
+        for path in skipped_files:
+            print(f"   {path}")
+
+    print()
+    abs_paths = [p for p in files if p.startswith("~") or p.startswith("/")]
+    rel_paths = [p for p in files if not (p.startswith("~") or p.startswith("/"))]
+
+    if abs_paths and rel_paths:
+        print(green(f"✅ Files restored from anchor '{bold(anchor_name)}'."))
+        print(cyan(f"  • Relative files under: {target_path}"))
+        print(cyan(f"  • Absolute files to original locations"))
+    elif rel_paths:
+        print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored under: {cyan(target_path)}"))
+    else:
+        print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored to their original paths"))
+
+    run_script_block(scripts.get("postload"), "postload")
+
 
 
 
