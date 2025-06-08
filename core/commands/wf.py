@@ -81,47 +81,54 @@ def escalate_if_needed_for_wf(tasks):
 
 
 
-
 def run_rc(anchor_name, context={}):
     from core.commands.rc import recreate_from_anchor
     import tempfile
 
-    # Cargar anchor original
-    raw, _ = load_anchor(anchor_name)
-    data = json.loads(raw)
+    # Detectar si el anchor viene inline dentro del workflow actual
+    current_workflow = context.get("__workflow_data__")
+    inline_files = current_workflow.get("files", {}) if current_workflow else {}
+    inline_anchor = inline_files.get(anchor_name)
 
-    if data.get("type") != "files":
-        print(f"⚠️  Anchor '{anchor_name}' is not of type 'files'")
-        return 1
+    if inline_anchor:
+        data = {
+            "type": "files",
+            "name": f"__inline__{anchor_name}",
+            "files": inline_anchor
+        }
+    else:
+        # Cargar desde disco normalmente
+        raw, _ = load_anchor(anchor_name)
+        data = json.loads(raw)
+        if data.get("type") != "files":
+            print(f"⚠️  Anchor '{anchor_name}' is not of type 'files'")
+            return 1
 
-    files = data.get("files", {})
+    # Renderizar con contexto
     rendered_files = {}
-
-    for path_template, meta in files.items():
+    for path_template, meta in data.get("files", {}).items():
         rendered_path = Template(path_template).render(**context)
         rendered_meta = {}
-
         for k, v in meta.items():
             if isinstance(v, str):
                 rendered_meta[k] = Template(v).render(**context)
             else:
                 rendered_meta[k] = v
-
         rendered_files[rendered_path] = rendered_meta
 
-    # Construir anchor temporal
     data["files"] = rendered_files
-    data["name"] = f"{anchor_name}__tmp__{context.get('usuario', '')}"
+    data["name"] = f"{anchor_name}__rendered__"
 
-    # Guardar a archivo temporal y aplicar como recreate_from_anchor
+    # Guardar temporal y aplicar
     with tempfile.TemporaryDirectory() as tmpdir:
-        anchor_file = os.path.join(tmpdir, f"{anchor_name}.json")
-        with open(anchor_file, "w") as f:
+        anchor_path = os.path.join(tmpdir, f"{anchor_name}.json")
+        with open(anchor_path, "w") as f:
             json.dump(data, f, indent=2)
-
         os.environ["ANCHOR_DIR"] = tmpdir
         recreate_from_anchor(anchor_name, context.get("target_path", "."))
-        return 0
+
+    return 0
+
 
 
 
@@ -345,6 +352,10 @@ def _execute_single(task, context, output_file=None, append=False):
         if not output_file and not task.get("register") and result.stdout:
             print(result.stdout.strip())
 
+        if result.returncode == 0:
+            print(green(f"    ✔️ OK ({result.returncode})"))
+        else:
+            print(red(f"    ❌ FAIL ({result.returncode})"))
         return result.returncode, result.stdout, result.stderr
 
     elif "anc" in task:
@@ -411,8 +422,14 @@ def handle_wf(args):
     task_results = {}
     print(bold(f"Workflow: {data.get('name', '')}"))
     print()
+
+    # Inyectar workflow completo en el contexto
+    global_vars["__workflow_data__"] = data
+
     for i, task in enumerate(tasks, 1):
         name = render(task.get("name", "Unnamed"), global_vars)
         print(bold(f"Task {i}/{len(tasks)}: {name} (id: {task['id']})"))
         execute_task(task, global_vars, task_results)
+
     print(green("Workflow completed."))
+
