@@ -107,33 +107,47 @@ def run_rc(anchor_name, context={}):
         }
     else:
         try:
-            # Cargar desde disco normalmente
             raw, _ = load_anchor(anchor_name)
             data = json.loads(raw)
         except FileNotFoundError:
             print(red(f"❌ Anchor '{anchor_name}' not found in disk or workflow."))
             return 1
-
         if data.get("type") != "files":
-            print(f"⚠️  Anchor '{anchor_name}' is not of type 'files'")
+            print(red(f"⚠️  Anchor '{anchor_name}' is not of type 'files'"))
             return 1
 
     # Renderizar archivos con contexto Jinja
     rendered_files = {}
     for path_template, meta in data.get("files", {}).items():
-        rendered_path = Template(path_template).render(**context)
+        try:
+            rendered_path = Template(path_template).render(**context)
+        except Exception as e:
+            print(red(f"❌ Error rendering path '{path_template}': {e}"))
+            return 1
+
+        if "{{" in rendered_path or "}}" in rendered_path:
+            print(red(f"❌ Path '{rendered_path}' not fully rendered. Missing variables in context."))
+            print(cyan("→ Context used:"))
+            print(json.dumps(context, indent=2))
+            return 1
+
         rendered_meta = {}
         for k, v in meta.items():
             if isinstance(v, str):
-                rendered_meta[k] = Template(v).render(**context)
+                try:
+                    rendered_meta[k] = Template(v).render(**context)
+                except Exception as e:
+                    print(red(f"❌ Error rendering key '{k}' in '{rendered_path}': {e}"))
+                    return 1
             else:
                 rendered_meta[k] = v
+
         rendered_files[rendered_path] = rendered_meta
 
     data["files"] = rendered_files
     data["name"] = f"{anchor_name}__rendered__"
 
-    # Guardar a archivo temporal y aplicar como recreate_from_anchor
+    # Guardar temporal y aplicar
     with tempfile.TemporaryDirectory() as tmpdir:
         anchor_path = os.path.join(tmpdir, f"{anchor_name}.json")
         with open(anchor_path, "w") as f:
@@ -142,6 +156,7 @@ def run_rc(anchor_name, context={}):
         recreate_from_anchor(anchor_name, context.get("target_path", "."))
 
     return 0
+
 
 
 

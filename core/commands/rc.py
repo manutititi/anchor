@@ -11,12 +11,25 @@ import subprocess
 from core.utils.colors import red, green, cyan, bold
 from core.utils.path import resolve_path
 from pathlib import Path
+import pwd
+import grp
 
 skipped_files = []
 changed_files = []
 
 
-
+def apply_ownership(dest, meta):
+    try:
+        uid = -1
+        gid = -1
+        if "owner" in meta:
+            uid = pwd.getpwnam(meta["owner"]).pw_uid if isinstance(meta["owner"], str) else int(meta["owner"])
+        if "group" in meta:
+            gid = grp.getgrnam(meta["group"]).gr_gid if isinstance(meta["group"], str) else int(meta["group"])
+        if uid != -1 or gid != -1:
+            os.chown(dest, uid if uid != -1 else -1, gid if gid != -1 else -1)
+    except Exception as e:
+        print(red(f"⚠️  Failed to apply ownership on {dest}: {e}"))
 
 
 def apply_file_tasks(files: dict):
@@ -211,7 +224,6 @@ def escalate_if_needed(files, target_path, anchor_name):
 
 
 
-
 def recreate_from_anchor(anchor_name, target_path):
     anchor_dir = os.environ.get("ANCHOR_DIR", "data")
     anchor_file = os.path.join(anchor_dir, f"{anchor_name}.json")
@@ -234,7 +246,6 @@ def recreate_from_anchor(anchor_name, target_path):
 
     escalate_if_needed(files, target_path, anchor_name)
 
-    # SHOW PREVIEW
     preview_changes = []
     for rel_path, file_data in files.items():
         is_absolute = rel_path.startswith("~") or rel_path.startswith("/")
@@ -276,20 +287,18 @@ def recreate_from_anchor(anchor_name, target_path):
         print(green("✅ Nothing to do — all files already match."))
         return
 
-    # Ejecutar preload si existe
     run_script_block(scripts.get("preload"), "preload")
-
     os.makedirs(target_path, exist_ok=True)
 
     for rel_path, file_data in files.items():
         is_absolute = rel_path.startswith("~") or rel_path.startswith("/")
-
         dest = os.path.normpath(os.path.expanduser(rel_path)) if is_absolute else os.path.normpath(os.path.join(target_path, rel_path))
 
         if file_data.get("type") == "directory":
             try:
                 os.makedirs(dest, exist_ok=True)
                 changed_files.append(dest)
+                apply_ownership(dest, file_data)
             except Exception as e:
                 print(red(f"❌ Failed to create directory {dest}: {e}"))
             continue
@@ -313,12 +322,13 @@ def recreate_from_anchor(anchor_name, target_path):
         else:
             write_file_from_content(dest, file_data)
 
-        perm = file_data.get("perm")
-        if perm and os.path.isfile(dest):
+        if file_data.get("perm") and os.path.isfile(dest):
             try:
-                os.chmod(dest, int(perm, 8))
+                os.chmod(dest, int(file_data["perm"], 8))
             except Exception as e:
-                print(red(f"⚠️  Failed to apply permissions {perm} to {dest}: {e}"))
+                print(red(f"⚠️  Failed to apply permissions {file_data['perm']} to {dest}: {e}"))
+
+        apply_ownership(dest, file_data)
 
     if env_anchor:
         env_ref_path = os.path.abspath(os.path.join(target_path, ".anc_env"))
@@ -335,10 +345,7 @@ def recreate_from_anchor(anchor_name, target_path):
     if changed_files:
         print(green("✅ Modified or created:"))
         for path in changed_files:
-            if os.path.isdir(path) and os.path.exists(path):
-                print(f"[DIR]   {path}")
-            else:
-                print(f"        {path}")
+            print(f"[DIR]   {path}" if os.path.isdir(path) else f"        {path}")
 
     if skipped_files:
         print(cyan("⏭️  Skipped (already up to date):"))
@@ -359,6 +366,8 @@ def recreate_from_anchor(anchor_name, target_path):
         print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored to their original paths"))
 
     run_script_block(scripts.get("postload"), "postload")
+
+
 
 
 
