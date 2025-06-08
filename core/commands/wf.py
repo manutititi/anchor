@@ -33,29 +33,37 @@ def render(template_str, context):
 
 
 
-def escalate_if_needed_for_wf(tasks):
+def escalate_if_needed_for_wf(tasks, workflow_data=None):
     if os.geteuid() == 0:
         return
 
     privileged_paths = []
 
+    embedded_files = workflow_data.get("files", {}) if workflow_data else {}
+
     for task in tasks:
-        if not task.get("files"):
-            continue
-        anchor_name = task["files"]
-        try:
-            raw, _ = load_anchor(anchor_name)
-            anchor = json.loads(raw)
-        except Exception as e:
-            print(red(f"❌ Error loading anchor '{anchor_name}': {e}"))
+        anchor_name = task.get("files")
+        if not anchor_name:
             continue
 
-        if anchor.get("type") != "files":
-            continue
+        # 1. Buscar en files embebido
+        anchor_data = embedded_files.get(anchor_name)
+        if anchor_data:
+            files = anchor_data
+        else:
+            # 2. Intentar cargar desde disco
+            try:
+                raw, _ = load_anchor(anchor_name)
+                anchor = json.loads(raw)
+                if anchor.get("type") != "files":
+                    continue
+                files = anchor.get("files", {})
+            except Exception:
+                continue  # No mostrar error aquí
 
-        for path_template, meta in anchor.get("files", {}).items():
+        for path_template, meta in files.items():
             become = meta.get("become", False)
-            if become is True or path_template.startswith(("/etc", "/usr", "/opt", "/root", "/testing")):
+            if become is True or path_template.startswith(("/etc", "/usr", "/opt", "/root", "/testing", "/tmp")):
                 privileged_paths.append(path_template)
 
     if privileged_paths:
@@ -81,6 +89,7 @@ def escalate_if_needed_for_wf(tasks):
 
 
 
+
 def run_rc(anchor_name, context={}):
     from core.commands.rc import recreate_from_anchor
     import tempfile
@@ -97,14 +106,19 @@ def run_rc(anchor_name, context={}):
             "files": inline_anchor
         }
     else:
-        # Cargar desde disco normalmente
-        raw, _ = load_anchor(anchor_name)
-        data = json.loads(raw)
+        try:
+            # Cargar desde disco normalmente
+            raw, _ = load_anchor(anchor_name)
+            data = json.loads(raw)
+        except FileNotFoundError:
+            print(red(f"❌ Anchor '{anchor_name}' not found in disk or workflow."))
+            return 1
+
         if data.get("type") != "files":
             print(f"⚠️  Anchor '{anchor_name}' is not of type 'files'")
             return 1
 
-    # Renderizar con contexto
+    # Renderizar archivos con contexto Jinja
     rendered_files = {}
     for path_template, meta in data.get("files", {}).items():
         rendered_path = Template(path_template).render(**context)
@@ -119,7 +133,7 @@ def run_rc(anchor_name, context={}):
     data["files"] = rendered_files
     data["name"] = f"{anchor_name}__rendered__"
 
-    # Guardar temporal y aplicar
+    # Guardar a archivo temporal y aplicar como recreate_from_anchor
     with tempfile.TemporaryDirectory() as tmpdir:
         anchor_path = os.path.join(tmpdir, f"{anchor_name}.json")
         with open(anchor_path, "w") as f:
@@ -128,6 +142,8 @@ def run_rc(anchor_name, context={}):
         recreate_from_anchor(anchor_name, context.get("target_path", "."))
 
     return 0
+
+
 
 
 
