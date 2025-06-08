@@ -35,10 +35,9 @@ def render(template_str, context):
 
 def escalate_if_needed_for_wf(tasks, workflow_data=None):
     if os.geteuid() == 0:
-        return
+        return  # Ya somos root
 
     privileged_paths = []
-
     embedded_files = workflow_data.get("files", {}) if workflow_data else {}
 
     for task in tasks:
@@ -46,12 +45,11 @@ def escalate_if_needed_for_wf(tasks, workflow_data=None):
         if not anchor_name:
             continue
 
-        # 1. Buscar en files embebido
+        # Buscar en workflow inline
         anchor_data = embedded_files.get(anchor_name)
         if anchor_data:
             files = anchor_data
         else:
-            # 2. Intentar cargar desde disco
             try:
                 raw, _ = load_anchor(anchor_name)
                 anchor = json.loads(raw)
@@ -59,11 +57,11 @@ def escalate_if_needed_for_wf(tasks, workflow_data=None):
                     continue
                 files = anchor.get("files", {})
             except Exception:
-                continue  # No mostrar error aquí
+                continue
 
         for path_template, meta in files.items():
             become = meta.get("become", False)
-            if become is True or path_template.startswith(("/etc", "/usr", "/opt", "/root", "/testing", "/tmp")):
+            if become is True or path_template.startswith(("/etc", "/usr", "/opt", "/root", "/srv", "/var", "/tmp")):
                 privileged_paths.append(path_template)
 
     if privileged_paths:
@@ -77,14 +75,18 @@ def escalate_if_needed_for_wf(tasks, workflow_data=None):
             print(red("❌ Aborted by user."))
             sys.exit(1)
 
-        venv_python = os.path.expanduser("~/.anchors/venv/bin/python3")
-        main_py = os.path.expanduser("~/.anchors/core/main.py")
+        # Relanzar el workflow completo con sudo y conservar el entorno
         anchor_arg = sys.argv[sys.argv.index("wf") + 1] if "wf" in sys.argv else ""
+        anchor_root = os.path.expanduser("~/.anchors")
+        venv_python = os.path.join(anchor_root, "venv", "bin", "python3")
+        main_py = os.path.join(anchor_root, "core", "main.py")
+
         env = os.environ.copy()
         env["WF_NONINTERACTIVE"] = "1"
 
         cmd = ["sudo", "-E", venv_python, main_py, "wf", anchor_arg]
         os.execve("/usr/bin/sudo", cmd, env)
+
 
 
 
@@ -429,7 +431,8 @@ def handle_wf(args):
     tasks = data.get("workflow", {}).get("tasks", [])
 
     # 🔐 Escalado anticipado si alguna tarea necesita root
-    escalate_if_needed_for_wf(tasks)
+    escalate_if_needed_for_wf(tasks, workflow_data=data)
+
 
     # Verificar y asignar IDs si faltan
     any_missing = False

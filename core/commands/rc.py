@@ -246,6 +246,7 @@ def recreate_from_anchor(anchor_name, target_path):
 
     escalate_if_needed(files, target_path, anchor_name)
 
+    # Vista previa
     preview_changes = []
     for rel_path, file_data in files.items():
         is_absolute = rel_path.startswith("~") or rel_path.startswith("/")
@@ -275,14 +276,13 @@ def recreate_from_anchor(anchor_name, target_path):
         print(cyan("\n📝 The following files will be created or modified:\n"))
         for line in preview_changes:
             print("   " + line)
-
-        if os.environ.get("WF_NONINTERACTIVE") == "1":
-            print(cyan("\n✔️ Skipping confirmation because workflow is running in escalated mode.\n"))
-        else:
+        if os.environ.get("WF_NONINTERACTIVE") != "1":
             choice = input(cyan("\n❓ Continue with these changes? [y/N]: ")).strip().lower()
             if choice != "y":
                 print(red("❌ Aborted by user."))
                 return
+        else:
+            print(cyan("\n✔️ Skipping confirmation because workflow is running in escalated mode.\n"))
     else:
         print(green("✅ Nothing to do — all files already match."))
         return
@@ -297,8 +297,10 @@ def recreate_from_anchor(anchor_name, target_path):
         if file_data.get("type") == "directory":
             try:
                 os.makedirs(dest, exist_ok=True)
-                changed_files.append(dest)
+                if file_data.get("perm"):
+                    os.chmod(dest, int(file_data["perm"], 8))
                 apply_ownership(dest, file_data)
+                changed_files.append(dest)
             except Exception as e:
                 print(red(f"❌ Failed to create directory {dest}: {e}"))
             continue
@@ -306,15 +308,10 @@ def recreate_from_anchor(anchor_name, target_path):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
 
         if file_data.get("external"):
-            url = None
-            if file_data.get("ref") and file_data.get("path"):
-                url = resolve_url_from_ref(file_data["ref"], file_data["path"])
-            elif file_data.get("path", "").startswith("http://") or file_data.get("path", "").startswith("https://"):
-                url = file_data["path"]
-
+            url = resolve_url_from_ref(file_data.get("ref", ""), file_data.get("path", "")) \
+                  if file_data.get("ref") else file_data.get("path", "")
             if url:
-                success = download_file(url, dest)
-                if not success:
+                if not download_file(url, dest):
                     continue
             else:
                 print(red(f"❌ No URL or ref for external file {rel_path}"))
@@ -335,18 +332,17 @@ def recreate_from_anchor(anchor_name, target_path):
         try:
             with open(env_ref_path, "w") as f:
                 f.write(env_anchor.strip() + "\n")
-            print(green(f"🔗 Environment anchor reference created at {cyan(env_ref_path)}"))
             changed_files.append(env_ref_path)
+            print(green(f"🔗 Environment anchor reference created at {cyan(env_ref_path)}"))
         except Exception as e:
             print(red(f"❌ Failed to write .anc_env: {e}"))
 
+    # Resumen final
     print()
-
     if changed_files:
         print(green("✅ Modified or created:"))
         for path in changed_files:
             print(f"[DIR]   {path}" if os.path.isdir(path) else f"        {path}")
-
     if skipped_files:
         print(cyan("⏭️  Skipped (already up to date):"))
         for path in skipped_files:
@@ -366,6 +362,7 @@ def recreate_from_anchor(anchor_name, target_path):
         print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored to their original paths"))
 
     run_script_block(scripts.get("postload"), "postload")
+
 
 
 
