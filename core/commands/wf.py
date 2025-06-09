@@ -91,10 +91,12 @@ def escalate_if_needed_for_wf(tasks, workflow_data=None):
 
 
 
-
 def run_rc(anchor_name, context={}):
     from core.commands.rc import recreate_from_anchor
     import tempfile
+    import io
+    import sys
+    from contextlib import redirect_stdout
 
     # Detectar si el anchor viene inline dentro del workflow actual
     current_workflow = context.get("__workflow_data__")
@@ -155,9 +157,31 @@ def run_rc(anchor_name, context={}):
         with open(anchor_path, "w") as f:
             json.dump(data, f, indent=2)
         os.environ["ANCHOR_DIR"] = tmpdir
-        recreate_from_anchor(anchor_name, context.get("target_path", "."))
+
+        # Silenciar stdout y capturar salida del rc
+        f = io.StringIO()
+        with redirect_stdout(f):
+            recreate_from_anchor(anchor_name, context.get("target_path", "."))
+
+        captured = f.getvalue().strip().splitlines()
+
+        # Detectar archivos nuevos o modificados
+        for line in captured:
+            line = line.strip()
+            if line.startswith("[NEW]"):
+                path = line.replace("[NEW]", "").strip()
+                print(green(f"    ✅ Archivo creado: {path}"))
+            elif line.startswith("[MOD]"):
+                path = line.replace("[MOD]", "").strip()
+                print(cyan(f"    🔧 Archivo modificado: {path}"))
+
+        if not any(line.startswith(("[NEW]", "[MOD]")) for line in captured):
+            print(cyan("    ℹ️ Sin cambios (ya existía todo)"))
 
     return 0
+
+
+
 
 
 
@@ -255,7 +279,6 @@ def execute_task(task, global_vars, task_results):
         for idx, loop_vars in enumerate(iterations, 1):
             context = {**merged_vars, **loop_vars}
 
-            # Inicializar caché compartido por tareas
             if "_input_cache" not in global_vars:
                 global_vars["_input_cache"] = {}
             context["_input_cache"] = global_vars["_input_cache"]
@@ -264,25 +287,25 @@ def execute_task(task, global_vars, task_results):
             if not _should_run(task, context):
                 print(cyan(f"  • {loop_name} [loop {idx}/{len(iterations)}] skipped"))
                 continue
+
             print(bold(f"  • {loop_name} [loop {idx}/{len(iterations)}]"))
             retcode, stdout, stderr = _execute_single(task, context, output_file=output_file, append=append)
 
-            # Registrar resultados y actualizar variables globales
             if register_key:
                 task_results[register_key] = stdout.strip() if stdout is not None else ''
+            task_results[task["id"]] = retcode
             global_vars.update({k: v for k, v in context.items() if k not in global_vars})
-        print()  # espacio después del loop
+        print()
+
     else:
         if not _should_run(task, merged_vars):
             print(cyan(f"  • {name} skipped"))
             if register_key:
                 task_results[register_key] = ''
-            else:
-                task_results[task['id']] = 0
+            task_results[task["id"]] = -1  # para que no se evalúe como éxito
             print()
             return
 
-        # Inicializar caché compartido
         if "_input_cache" not in global_vars:
             global_vars["_input_cache"] = {}
         merged_vars["_input_cache"] = global_vars["_input_cache"]
@@ -292,12 +315,11 @@ def execute_task(task, global_vars, task_results):
 
         if register_key:
             task_results[register_key] = stdout.strip() if stdout is not None else ''
-        else:
-            task_results[task['id']] = retcode
+        task_results[task["id"]] = retcode  # ✅ guardar siempre el código de retorno
 
-        # Actualizar global_vars con nuevas entradas definidas en el contexto
         global_vars.update({k: v for k, v in merged_vars.items() if k not in global_vars})
         print()
+
 
 
 
@@ -396,21 +418,60 @@ def _execute_single(task, context, output_file=None, append=False):
         print(cyan(f"    → anc: {cmd}"))
         source_functions = 'for f in "$HOME/.anchors/functions/"*.sh; do source "$f"; done'
         full_cmd = f"{source_functions} && anc {cmd}"
-        result = subprocess.run(["bash", "-i", "-c", full_cmd], cwd=cwd)
-        if output_file:
-            print(red("⚠️ Output redirection not supported in interactive mode (anc task)"))
-        if result.returncode != 0:
+
+        result = subprocess.run(["bash", "-i", "-c", full_cmd], cwd=cwd, capture_output=True, text=True)
+
+        if output_file and (result.stdout or result.stderr):
+            _write_output(output_file, mode, result.stdout, result.stderr)
+
+        # Solo mostrar stdout si NO hay register ni output
+        if not output_file and not task.get("register") and result.stdout:
+            print(result.stdout.strip())
+
+        if result.returncode == 0:
+            print(green(f"    ✔️ OK ({result.returncode})"))
+        else:
             print(red(f"    ❌ anc command failed with code {result.returncode}"))
-        return result.returncode, '', ''
+
+        return result.returncode, result.stdout, result.stderr
+
 
     elif "files" in task:
         anchor_name = render(task["files"], context)
         print(cyan(f"    → files: applying anchor '{anchor_name}' with context"))
         returncode = run_rc(anchor_name, context)
-        return returncode, "", ""
+        #return returncode, "", ""
 
-    return 0, '', ''
+        return 0, '', ''
 
+
+    elif "api" in task:
+        import requests
+
+        api = task["api"]
+        method = api.get("method", "GET").upper()
+        url = render(api["url"], context)
+        headers = {k: render(v, context) for k, v in api.get("headers", {}).items()}
+        data = api.get("body")
+
+        if isinstance(data, str):
+            try:
+                data = render(data, context)
+            except Exception as e:
+                print(red(f"    ❌ Error rendering API body: {e}"))
+                return 1, "", str(e)
+
+        print(cyan(f"    → API {method} {url}"))
+
+        try:
+            resp = requests.request(method, url, headers=headers, json=data)
+            resp.raise_for_status()
+            result = resp.text
+            print(green(f"    ✔️ {resp.status_code}"))
+            return 0, result, ""
+        except Exception as e:
+            print(red(f"    ❌ API error: {e}"))
+            return 1, "", str(e)
 
 
 
