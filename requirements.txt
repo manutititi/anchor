@@ -3,3 +3,4 @@ PyYAML
 requests
 jinja2
 simpleeval
+jmespath
