@@ -11,6 +11,7 @@ import tempfile
 import re
 import os
 import sys
+from core.utils.secrets import resolve_secrets
 
 
 DATA_DIR = Path(resolve_path("~/.anchors/data"))
@@ -95,10 +96,9 @@ def run_rc(anchor_name, context={}):
     from core.commands.rc import recreate_from_anchor
     import tempfile
     import io
-    import sys
+    import os
     from contextlib import redirect_stdout
 
-    # Detectar si el anchor viene inline dentro del workflow actual
     current_workflow = context.get("__workflow_data__")
     inline_files = current_workflow.get("files", {}) if current_workflow else {}
     inline_anchor = inline_files.get(anchor_name)
@@ -120,7 +120,7 @@ def run_rc(anchor_name, context={}):
             print(red(f"⚠️  Anchor '{anchor_name}' is not of type 'files'"))
             return 1
 
-    # Renderizar archivos con contexto Jinja
+    # Renderizar
     rendered_files = {}
     for path_template, meta in data.get("files", {}).items():
         try:
@@ -130,7 +130,7 @@ def run_rc(anchor_name, context={}):
             return 1
 
         if "{{" in rendered_path or "}}" in rendered_path:
-            print(red(f"❌ Path '{rendered_path}' not fully rendered. Missing variables in context."))
+            print(red(f"❌ Path '{rendered_path}' not fully rendered."))
             print(cyan("→ Context used:"))
             print(json.dumps(context, indent=2))
             return 1
@@ -151,34 +151,36 @@ def run_rc(anchor_name, context={}):
     data["files"] = rendered_files
     data["name"] = f"{anchor_name}__rendered__"
 
-    # Guardar temporal y aplicar
+    # Aplicar con captura
     with tempfile.TemporaryDirectory() as tmpdir:
         anchor_path = os.path.join(tmpdir, f"{anchor_name}.json")
         with open(anchor_path, "w") as f:
             json.dump(data, f, indent=2)
         os.environ["ANCHOR_DIR"] = tmpdir
 
-        # Silenciar stdout y capturar salida del rc
         f = io.StringIO()
         with redirect_stdout(f):
             recreate_from_anchor(anchor_name, context.get("target_path", "."))
 
         captured = f.getvalue().strip().splitlines()
 
-        # Detectar archivos nuevos o modificados
+        # Mostrar solo una línea por archivo modificado
+        already_shown = set()
         for line in captured:
             line = line.strip()
-            if line.startswith("[NEW]"):
-                path = line.replace("[NEW]", "").strip()
-                print(green(f"    ✅ Archivo creado: {path}"))
-            elif line.startswith("[MOD]"):
-                path = line.replace("[MOD]", "").strip()
-                print(cyan(f"    🔧 Archivo modificado: {path}"))
+            if line.startswith("[NEW]") or line.startswith("[MOD]"):
+                path = line.split("]", 1)[-1].strip()
+                if path not in already_shown:
+                    print(green(f"    ✅ File created or modified: {path}"))
+                    already_shown.add(path)
 
-        if not any(line.startswith(("[NEW]", "[MOD]")) for line in captured):
-            print(cyan("    ℹ️ Sin cambios (ya existía todo)"))
+        if not already_shown:
+            print(cyan("    ℹ️ No changes (Already present)"))
 
     return 0
+
+
+
 
 
 
@@ -271,7 +273,8 @@ def execute_task(task, global_vars, task_results):
     task_vars = task.get("vars", {})
     merged_vars = {**global_vars, **task_vars, **task_results}
     name = render(task.get("name", "Unnamed task"), merged_vars)
-    register_key = task.get("register")
+    register_key = task.get("set") or task.get("register")
+
     output_key, output_file, append = extract_output_field(task)
 
     if "loop" in task:
@@ -345,7 +348,28 @@ def _write_output(path, mode, stdout, stderr):
             f.write(stderr)
 
 
+
+def resolve_undefined_vars(template_str, context):
+    if "_input_cache" not in context:
+        context["_input_cache"] = {}
+    input_cache = context["_input_cache"]
+
+    variables = re.findall(r"{{\s*([\w_]+)\s*}}", template_str)
+    for var in variables:
+        if var not in context:
+            if var in input_cache:
+                context[var] = input_cache[var]
+            else:
+                user_input = input(f"    🧩 Var '{var}' not defined, insert a value: ").strip()
+                context[var] = user_input
+                input_cache[var] = user_input
+
+
+
 def _execute_single(task, context, output_file=None, append=False):
+    import requests
+    import jmespath
+
     mode = "a" if append else "w"
     cwd = None
 
@@ -355,7 +379,7 @@ def _execute_single(task, context, output_file=None, append=False):
         print(cyan(f"    → chdir: {cwd}"))
 
     if output_file:
-        output_file = render(output_file, context)
+        output_file = resolve_secrets(render(output_file, context))
         output_file = str(Path(output_file).expanduser())
 
     if "sleep" in task:
@@ -368,33 +392,18 @@ def _execute_single(task, context, output_file=None, append=False):
 
         if "{{" in cmd_template:
             print(f"    🔍 Comando con variables: {cmd_template}")
+            resolve_undefined_vars(cmd_template, context)
 
-        # Inicializar cache de input
-        if "_input_cache" not in context:
-            context["_input_cache"] = {}
-        input_cache = context["_input_cache"]
-
-        # Detectar variables {{ var }}
-        undefined_vars = re.findall(r"{{\s*([\w_]+)\s*}}", cmd_template)
-        for var in undefined_vars:
-            if var not in context:
-                if var in input_cache:
-                    context[var] = input_cache[var]
-                else:
-                    user_input = input(f"    🧩 Var '{var}' not defined, insert a value: ").strip()
-                    context[var] = user_input
-                    input_cache[var] = user_input
-
-        cmd = render(cmd_template, context)
+        cmd = resolve_secrets(render(cmd_template, context))
 
         if "input_auto" in task:
             inputs = []
             for x in task["input_auto"]:
                 if isinstance(x, dict):
-                    rendered_entry = {render(k, context): render(v, context) for k, v in x.items()}
+                    rendered_entry = {resolve_secrets(render(k, context)): resolve_secrets(render(v, context)) for k, v in x.items()}
                     inputs.append(rendered_entry)
                 else:
-                    inputs.append(render(x, context))
+                    inputs.append(resolve_secrets(render(x, context)))
             print(cyan(f"    → shell (input_auto): {cmd}"))
             return execute_with_input_auto(cmd, inputs, cwd=cwd)
 
@@ -414,7 +423,9 @@ def _execute_single(task, context, output_file=None, append=False):
         return result.returncode, result.stdout, result.stderr
 
     elif "anc" in task:
-        cmd = render(task["anc"], context)
+        cmd_template = task["anc"]
+        resolve_undefined_vars(cmd_template, context)
+        cmd = resolve_secrets(render(cmd_template, context))
         print(cyan(f"    → anc: {cmd}"))
         source_functions = 'for f in "$HOME/.anchors/functions/"*.sh; do source "$f"; done'
         full_cmd = f"{source_functions} && anc {cmd}"
@@ -424,7 +435,6 @@ def _execute_single(task, context, output_file=None, append=False):
         if output_file and (result.stdout or result.stderr):
             _write_output(output_file, mode, result.stdout, result.stderr)
 
-        # Solo mostrar stdout si NO hay register ni output
         if not output_file and not task.get("register") and result.stdout:
             print(result.stdout.strip())
 
@@ -435,43 +445,90 @@ def _execute_single(task, context, output_file=None, append=False):
 
         return result.returncode, result.stdout, result.stderr
 
-
     elif "files" in task:
-        anchor_name = render(task["files"], context)
+        anchor_name = resolve_secrets(render(task["files"], context))
         print(cyan(f"    → files: applying anchor '{anchor_name}' with context"))
         returncode = run_rc(anchor_name, context)
-        #return returncode, "", ""
-
         return 0, '', ''
 
-
     elif "api" in task:
-        import requests
-
         api = task["api"]
         method = api.get("method", "GET").upper()
-        url = render(api["url"], context)
-        headers = {k: render(v, context) for k, v in api.get("headers", {}).items()}
-        data = api.get("body")
+        mode = api.get("mode", "json")
+        extract_expr = api.get("extract")
+        register_key = task.get("set") or task.get("register")
 
-        if isinstance(data, str):
-            try:
-                data = render(data, context)
-            except Exception as e:
-                print(red(f"    ❌ Error rendering API body: {e}"))
-                return 1, "", str(e)
+
+        resolve_undefined_vars(api["url"], context)
+
+        for val in api.get("headers", {}).values():
+            resolve_undefined_vars(val, context)
+
+        if "body" in api:
+            if isinstance(api["body"], str):
+                resolve_undefined_vars(api["body"], context)
+            elif isinstance(api["body"], dict):
+                resolve_undefined_vars(json.dumps(api["body"]), context)
+
+        for val in api.get("params", {}).values():
+            resolve_undefined_vars(val, context)
+
+        url = resolve_secrets(render(api["url"], context))
+        headers = {k: resolve_secrets(render(v, context)) for k, v in api.get("headers", {}).items()}
+        params = {k: resolve_secrets(render(v, context)) for k, v in api.get("params", {}).items()} if api.get("params") else {}
+
+        body = api.get("body")
+        if isinstance(body, str):
+            body = resolve_secrets(render(body, context))
+        elif isinstance(body, dict):
+            body = json.loads(resolve_secrets(render(json.dumps(body), context)))
 
         print(cyan(f"    → API {method} {url}"))
 
         try:
-            resp = requests.request(method, url, headers=headers, json=data)
+            if method == "GET":
+                resp = requests.get(url, headers=headers, params=params)
+            else:
+                if mode == "json":
+                    resp = requests.request(method, url, headers=headers, json=body, params=params)
+                elif mode == "form":
+                    resp = requests.request(method, url, headers=headers, data=body, params=params)
+                elif mode == "raw":
+                    resp = requests.request(method, url, headers=headers, data=json.dumps(body), params=params)
+                else:
+                    print(red(f"    ❌ Unsupported API mode: {mode}"))
+                    return 1, "", "Unsupported API mode"
+
             resp.raise_for_status()
-            result = resp.text
             print(green(f"    ✔️ {resp.status_code}"))
+
+            raw_result = resp.text
+            result = raw_result
+
+            if extract_expr:
+                try:
+                    json_data = resp.json()
+                    result = jmespath.search(extract_expr, json_data)
+                    if isinstance(result, (dict, list)):
+                        result = json.dumps(result, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    print(red(f"    ⚠️ Failed to extract '{extract_expr}': {e}"))
+                    result = raw_result
+
+            if register_key:
+                context[register_key] = result
+                print(cyan(f"    ⤷ Stored response in var: {register_key}"))
+
             return 0, result, ""
+
         except Exception as e:
             print(red(f"    ❌ API error: {e}"))
             return 1, "", str(e)
+
+
+
+
+
 
 
 
@@ -488,7 +545,10 @@ def handle_wf(args):
     if data.get("type") != "workflow":
         raise ValueError("Anchor must be of type 'workflow'")
 
-    global_vars = data.get("vars", {})
+    raw_vars = data.get("vars", {})
+    global_vars = {k: resolve_secrets(v) if isinstance(v, str) else v for k, v in raw_vars.items()}
+
+
     tasks = data.get("workflow", {}).get("tasks", [])
 
     # 🔐 Escalado anticipado si alguna tarea necesita root

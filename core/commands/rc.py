@@ -84,6 +84,7 @@ def download_file(url, dest):
         return False
 
 
+
 def write_file_from_content(dest, file_data):
     try:
         content = file_data.get("content", "")
@@ -101,14 +102,21 @@ def write_file_from_content(dest, file_data):
                     skipped_files.append(dest)
                     return True
 
-            with open(dest, "wb") as f:
-                f.write(decoded)
-            changed_files.append(dest)
+                with open(dest, "wb") as f:
+                    f.write(decoded)
+                changed_files.append(dest)
+                print(f"[MOD] {dest}")
+            else:
+                with open(dest, "wb") as f:
+                    f.write(decoded)
+                changed_files.append(dest)
+                print(f"[NEW] {dest}")
 
         elif mode == "append":
             with open(dest, "ab") as f:
                 f.write(decoded)
             changed_files.append(dest)
+            print(f"[MOD] {dest}")
 
         elif mode == "prepend":
             if os.path.exists(dest):
@@ -119,6 +127,7 @@ def write_file_from_content(dest, file_data):
             with open(dest, "wb") as f:
                 f.write(decoded + existing)
             changed_files.append(dest)
+            print(f"[MOD] {dest}")
 
         elif mode == "regex":
             regex = file_data.get("regex", "")
@@ -138,6 +147,7 @@ def write_file_from_content(dest, file_data):
                     with open(dest, "w", encoding="utf-8") as f:
                         f.write(result)
                     changed_files.append(dest)
+                    print(f"[MOD] {dest}")
                 except Exception as e:
                     print(red(f"❌ Regex error in {dest}: {e}"))
                     return False
@@ -154,6 +164,9 @@ def write_file_from_content(dest, file_data):
     except Exception as e:
         print(red(f"❌ Failed to write {dest}: {e}"))
         return False
+
+
+
 
 
 def run_script_block(blocks, when="preload"):
@@ -223,7 +236,6 @@ def escalate_if_needed(files, target_path, anchor_name):
 
 
 
-
 def recreate_from_anchor(anchor_name, target_path):
     anchor_dir = os.environ.get("ANCHOR_DIR", "data")
     anchor_file = os.path.join(anchor_dir, f"{anchor_name}.json")
@@ -255,9 +267,15 @@ def recreate_from_anchor(anchor_name, target_path):
         if file_data.get("type") == "directory":
             if not os.path.isdir(dest):
                 preview_changes.append(f"[DIR]  {dest}")
-        elif not os.path.exists(dest):
+            continue
+
+        if not os.path.exists(dest):
             preview_changes.append(f"[NEW]  {dest}")
-        else:
+            continue
+
+        mode = file_data.get("mode", "replace")
+
+        if mode == "replace":
             try:
                 content = file_data.get("content", "")
                 encoding = file_data.get("encoding", "plain")
@@ -271,6 +289,9 @@ def recreate_from_anchor(anchor_name, target_path):
                     preview_changes.append(f"[CHG]  {dest}")
             except Exception as e:
                 preview_changes.append(f"[???]  {dest} ({e})")
+        else:
+            # Para append, prepend, regex: asumir siempre que habrá cambios
+            preview_changes.append(f"[MOD]  {dest}")
 
     if preview_changes:
         print(cyan("\n📝 The following files will be created or modified:\n"))
@@ -332,63 +353,16 @@ def recreate_from_anchor(anchor_name, target_path):
         try:
             with open(env_ref_path, "w") as f:
                 f.write(env_anchor.strip() + "\n")
-            changed_files.append(env_ref_path)
-            print(green(f"🔗 Environment anchor reference created at {cyan(env_ref_path)}"))
-        except Exception as e:
-            print(red(f"❌ Failed to write .anc_env: {e}"))
-
-    # Resumen final
-    print()
-    if changed_files:
-        print(green("✅ Modified or created:"))
-        for path in changed_files:
-            print(f"[DIR]   {path}" if os.path.isdir(path) else f"        {path}")
-    if skipped_files:
-        print(cyan("⏭️  Skipped (already up to date):"))
-        for path in skipped_files:
-            print(f"   {path}")
-
-    print()
-    abs_paths = [p for p in files if p.startswith("~") or p.startswith("/")]
-    rel_paths = [p for p in files if not (p.startswith("~") or p.startswith("/"))]
-
-    if abs_paths and rel_paths:
-        print(green(f"✅ Files restored from anchor '{bold(anchor_name)}'."))
-        print(cyan(f"  • Relative files under: {target_path}"))
-        print(cyan(f"  • Absolute files to original locations"))
-    elif rel_paths:
-        print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored under: {cyan(target_path)}"))
-    else:
-        print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored to their original paths"))
-
-    run_script_block(scripts.get("postload"), "postload")
-
-
-
-
-
-
-
-
-
-    if env_anchor:
-        env_ref_path = os.path.abspath(os.path.join(target_path, ".anc_env"))
-        try:
-            with open(env_ref_path, "w") as f:
-                f.write(env_anchor.strip() + "\n")
             print(green(f"🔗 Environment anchor reference created at {cyan(env_ref_path)}"))
             changed_files.append(env_ref_path)
         except Exception as e:
             print(red(f"❌ Failed to write .anc_env: {e}"))
-
-    
 
     # Resumen final
     abs_paths = [p for p in files if p.startswith("~") or p.startswith("/")]
     rel_paths = [p for p in files if not (p.startswith("~") or p.startswith("/"))]
 
     print()
-
     if changed_files:
         print(green("✅ Modified or created:"))
         for path in changed_files:
@@ -397,7 +371,6 @@ def recreate_from_anchor(anchor_name, target_path):
             else:
                 print(f"        {path}")
 
-
     if skipped_files:
         print(cyan("⏭️  Skipped (already up to date):"))
         for path in skipped_files:
@@ -413,10 +386,10 @@ def recreate_from_anchor(anchor_name, target_path):
     else:
         print(green(f"✅ All files from anchor '{bold(anchor_name)}' restored to their original paths"))
 
-
-
     # Ejecutar postload si existe
     run_script_block(scripts.get("postload"), "postload")
+
+
 
 
 def run(args):
