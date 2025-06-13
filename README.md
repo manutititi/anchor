@@ -1,148 +1,167 @@
 # anc — Anchor Management CLI
 
-`anc` is a flexible, developer-first CLI to define, navigate, and manage directory anchors — bookmarks for local folders, remote paths, and project environments.
+`anc` is a modular CLI and optional server for managing paths, scripts, files, secrets, environments, and infrastructure workflows through **anchors** — executable, metadata-rich JSON objects.
 
-It’s a lightweight system that feels like a local shell extension, but scales into a cross-machine, metadata-aware, Git- and Docker-savvy workspace router.(docker and git under development, in the future ansible, tf)
+Built for DevOps teams and developers, `anc` evolves from a shell utility to a portable automation framework: syncable, declarative, and extensible.
 
 ---
-
 
 <details>
 <summary><strong>🚀 Installation</strong></summary>
 
 ### CLI Setup
 
-Just run:
-
 ```bash
 ./install.sh
 ```
 
+### Launch the Server (optional)
 
-To enable anc server go to server folder and run docker compose
 ```bash
 cd server
 docker compose up --build -d
 ```
 
-http://localhost:17017
-
+- Dashboard: http://localhost:17017/dashboard  
+- API: http://localhost:17017
 </details>
 
-### Why `anc`?
+---
 
-- **Jump instantly** to any directory, workspace, or remote path.
-- **Tag and query** anchors by metadata like `env=dev`, `project=demo`, `type=remote`.
-- **Copy, move, or run** commands across anchors with powerful filtering.
-- **Understand your context**: auto-detects Git repos, Docker services, and notes.
-- **Sync to a local server** to share or back up anchor metadata.
-- **Evolve** toward a portable, smart router of environments for teams and infrastructure.
+## 🔑 Key Concepts
+
+- **Anchors**: JSON-based units representing paths, environments, secrets, tasks, or workflows.
+- **Types**: `local`, `ssh`, `url`, `env`, `files`, `ansible`, `secret`.
+- **Filtering**: Query anchors by metadata using expressions like `env=prod AND project=web`.
+- **Modular**: Each command is composable, scriptable, and server-aware.
 
 ---
 
->  Built to grow from solo dev to team-level environment orchestration.
----
-
-## Basic Navigation
-```bash
-anc
-anc test
-anc test ls
-anc test tree
-anc show test
-```
-
-- `anc` — Jump to the default anchor.
-- `anc <name>` — Jump to a specific anchor.
-- `anc <name> ls` — List contents of the anchor directory.
-- `anc <name> tree` — Show tree view of the anchor.
-- `anc show <name>` — Show metadata and path for an anchor.
-
----
-
-## Anchor Management
+## 📁 Anchor Management
 
 ```bash
-anc set
-anc set ./folder
-anc del test
+anc set                # Set anchor for current directory
+anc set ./path         # Set anchor for a relative path
+anc set --ssh name user@host:/path
+anc set --url name https://example.com
+anc set --env name .env
+anc set --ansible name
+anc show name
+anc ls
+anc ls -f project=web
+anc note name "Optional comment"
+anc meta name env=dev project=demo
 anc rename old new
-anc prune
-anc note test "Project folder"
-anc meta test env=dev project=demo
+anc del name
+anc prune              # Remove anchors with invalid paths
 ```
-
-- `anc set` — Set anchor for current directory.
-- `anc set ./folder` — Set anchor for a relative path.
-- `anc set-ssh <name> <url>` — Set a remote SSH anchor.
-- `anc del <name>` — Delete an anchor.
-- `anc rename <old> <new>` — Rename an anchor.
-- `anc prune` — Remove anchors pointing to non-existent paths.
-- `anc note <name> [note]` — Add or update note.
-- `anc meta <name> key=value ...` — Set metadata fields.
 
 ---
 
-## File Transfer
+## 🔄 File Operations
 
 ```bash
-anc cp file.txt test/
-anc mv file.txt test/
-anc cpt main/app.sh test/bin/
+anc cp file.txt anchor/
+anc mv script.sh anchor/bin/
+anc cpt anchor1/file anchor2/
 ```
-
-- `anc cp` — Copy file(s) to anchor (with optional subpath).
-- `anc mv` — Move file(s) to anchor.
-- `anc cpt` — Copy between anchors.
 
 ---
 
-## Running Commands
+## 🧨 Command Execution
 
 ```bash
-anc run test make build
-anc run -f env=dev "ls -la"
+anc run dev "npm install"
+anc run -f env=prod "systemctl restart nginx"
 ```
-
-- `anc run <name> <cmd>` — Run command inside anchor directory.
-- `anc run --filter key=value <cmd>` — Run command in anchors matching metadata.
 
 ---
 
-## Server Sync
+## 🌐 Server Sync
 
 ```bash
-anc push test
-anc pull test
+anc server auth                      # Authenticate via LDAP
+anc server name https://host:17017  # Set server URL
+anc server ls                       # List remote anchors
+anc server ls -f env=prod
+anc server show name
+
+anc push name                       # Upload anchor to server
+anc pull name                       # Download anchor from server
 anc pull --all
-anc pull -f env=dev
-anc server name [url]
-anc server ls
-anc server ls -f project=demo
-anc server ls|show test
+anc pull -f project=infra
 ```
 
-- `anc push <name>` — Upload anchor metadata to server.
-- `anc pull <name>` — Download anchor metadata from server.
-- `anc pull --all` — Pull all remote anchors.
-- `anc pull -f key=value` — Pull anchors matching metadata.
-- `anc server name [url]` — Set or show current server URL.
-- `anc server ls` — List all anchors on the remote server.
-- `anc server ls -f key=value` — Filter anchors by metadata.
-- `anc server ls <name>` — Show full metadata for one anchor.
+Filters support advanced logic:
 
-> **Tip:** You can combine multiple filters using `AND` / `OR`, like:
->
-> ```bash
-> anc server ls -f "env=dev AND project=demo"
-> ```
+```bash
+anc server ls -f "env=prod AND project~web"
+```
 
 ---
 
-## Web Dashboard
+## 🔐 Secret Management
 
-Access the web interface:
+```bash
+anc secret push name [.env]         # Encrypt and push secret
+anc secret get name                 # Decrypt and show
+anc secret update name              # Interactive update
+anc secret del name                 # Delete secret
+```
+
+Supports interactive and non-interactive modes with `--desc`, `--groups`, `--users`, `--secret`, and `--json`.
+
+Secrets are stored encrypted (AES-GCM), and access is controlled by group/user policies via LDAP.
+
+---
+
+## 🔁 Environment Snapshots
+
+```bash
+anc cr name                         # Capture current folder as files anchor
+anc cr name --only file1,dir2/      # Selective capture
+anc rc name                         # Restore to current directory
+anc rc name /target/path            # Restore to custom path
+```
+
+---
+
+## ⚙️ Workflows
+
+```bash
+anc wf myflow.yaml
+```
+
+Run declarative workflows combining:
+
+- `anc`: internal commands
+- `shell`: system commands
+- `files`: restore anchors
+- `api`: HTTP requests
+- `sleep`, `watch`, `set`, etc.
+
+
+Workflows support loops, variables, secrets, and conditionals.
+
+---
+
+## 📊 Web Dashboard
+
+Access via:
 
 ```
 http://localhost:17017/dashboard
 ```
+Still in development
+
+---
+
+## 🧠 Philosophy
+
+`anc` treats configuration, environments, and actions as executable knowledge.  
+Every anchor is portable, inspectable, and composable — designed to work locally, remotely, or across teams.
+
+> From personal workspace shortcuts to distributed automation workflows.
+
+---
+
