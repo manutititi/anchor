@@ -128,8 +128,17 @@ anc_run_script() {
       echo "❌ $label script '$script' failed with exit code $code"
       return 1
     fi
+  elif [[ "$script" =~ ^(echo|apt|touch|rm|cp|mv|mkdir|pwd|cat|chmod|chown|ln|date|whoami|uname|id|sleep|curl|wget)[[:space:]] ]]; then
+    echo "▶️  Running inline $label command: $script"
+    bash -c "$script"
+    local code=$?
+    if [[ "$code" -ne 0 ]]; then
+      echo "❌ Inline $label command '$script' failed with exit code $code"
+      return 1
+    fi
   else
     echo "⚠️  $label script '$script' not found or not executable"
     return 1
   fi
 }
+

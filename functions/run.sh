@@ -63,10 +63,15 @@ anc_handle_run() {
 
   for name in "${files[@]}"; do
     local meta_file="$anchor_dir/$name.json"
-    local raw_path=$(jq -r '.path // empty' "$meta_file")
+    local raw_path=$(jq -r '
+      if has("path") then .path
+      elif (.paths | type == "array") then
+        (.paths[] | select(.default == true).path) // .paths[0].path
+      else empty end
+    ' "$meta_file")
 
     if [[ -z "$raw_path" ]]; then
-      echo -e "${RED}⚠️ Anchor '$name' has no path, skipping${RESET}"
+      echo -e "${RED}⚠️ Anchor '$name' has no usable path, skipping${RESET}"
       continue
     fi
 
@@ -76,14 +81,15 @@ anc_handle_run() {
     echo -e "${BLUE}🔗 Running in '${name}' → ${path}:${RESET}"
 
     if [[ "$raw_path" == ssh://* ]]; then
-      if [[ "$raw_path" =~ ^ssh://([^:]+):(.+)$ ]]; then
-        local user_host="${BASH_REMATCH[1]}"
-        local remote_path="${BASH_REMATCH[2]}"
-        ssh "$user_host" -t "cd '$remote_path' && $cmd"
+      if [[ "$raw_path" =~ ^ssh://([^@]+)@([^:/]+):(.+)$ ]]; then
+        local user="${BASH_REMATCH[1]}"
+        local host="${BASH_REMATCH[2]}"
+        local remote_path="${BASH_REMATCH[3]}"
+        ssh "$user@$host" -t "cd '$remote_path' && $cmd"
       else
         echo -e "${RED}❌ Invalid SSH path format in anchor '$name': $raw_path${RESET}"
       fi
-    elif [[ -d "$path" ]]; then
+    elif [[ "$path" == /* && -d "$path" ]]; then
       (cd "$path" && eval "$cmd")
     else
       echo -e "${RED}❌ Path '$path' is not valid or not a directory${RESET}"

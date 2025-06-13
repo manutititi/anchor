@@ -1,0 +1,10 @@
+- name: "Create Users"
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    comment: "{{ item.comment | default('') }}"
+    shell: "{{ item.shell | default('/bin/bash') }}"
+    groups: "{{ item.groups | default(omit) }}"
+    password: "{{ item.password | default(omit) }}"
+    home: "{{ item.home | default('/home/' ~ item.name) }}"
+    state: present
+  loop: "{{ vars.users }}"

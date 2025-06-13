@@ -1,10 +1,3 @@
-- name: Ensure remote_path {{ remote_path }} exists on {{ inventory_hostname }}
-  become: true
-  ansible.builtin.file:
-    path: "{{ remote_path }}"
-    state: directory
-    mode: '1777'
-
 - name: Ensure parent folder {{ local_path }}/{{ inventory_hostname }} exists
   delegate_to: localhost
   ansible.builtin.file:
