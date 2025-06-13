@@ -41,8 +41,7 @@ docker compose up --build -d
 
 ```bash
 anc set                # Set anchor for current directory
-anc set ./path         # Set anchor for a relative path
-anc set --ssh name user@host:/path
+anc set --ssh name user@host:/path -i /path/to/key
 anc set --url name https://example.com
 anc set --env name .env
 anc set --ansible name
@@ -62,8 +61,6 @@ anc prune              # Remove anchors with invalid paths
 
 ```bash
 anc cp file.txt anchor/
-anc mv script.sh anchor/bin/
-anc cpt anchor1/file anchor2/
 ```
 
 ---
@@ -119,9 +116,8 @@ Secrets are stored encrypted (AES-GCM), and access is controlled by group/user p
 
 ```bash
 anc cr name                         # Capture current folder as files anchor
-anc cr name --only file1,dir2/      # Selective capture
+anc cr name /path/to/1 path/to/2    # Capture current folder as files anchor
 anc rc name                         # Restore to current directory
-anc rc name /target/path            # Restore to custom path
 ```
 
 ---
@@ -129,7 +125,7 @@ anc rc name /target/path            # Restore to custom path
 ## ⚙️ Workflows
 
 ```bash
-anc wf myflow.yaml
+anc wf myflow
 ```
 
 Run declarative workflows combining:
