@@ -68,6 +68,11 @@ for CONFIG in "${SHELL_CONFIGS[@]}"; do
   fi
 done
 
+
+sudo apt install python3.10-venv -y
+
+
+
 # Python virtual environment setup
 echo -e "\n🐍 Setting up Python virtual environment..."
 
