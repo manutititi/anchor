@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Anchor Vault{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen" x-data="appShell()" x-init="init()">
+
+  <!-- Sidebar -->
+  <div class="flex h-screen overflow-hidden">
+    <aside class="w-56 bg-gray-900 text-gray-200 flex flex-col shrink-0">
+      <div class="px-5 py-4 border-b border-gray-700">
+        <span class="text-white font-bold text-lg">⚓ Anchor</span>
+      </div>
+
+      <nav class="flex-1 px-3 py-4 space-y-1">
+        <a href="/ui/anchors"
+           class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-700 text-sm
+                  {% block nav_anchors %}{% endblock %}">
+          ⚓ Anchors
+        </a>
+        <a href="/ui/secrets"
+           class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-700 text-sm
+                  {% block nav_secrets %}{% endblock %}">
+          🔑 Secrets
+        </a>
+        <template x-if="isAdmin">
+          <a href="/ui/users"
+             class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-700 text-sm
+                    {% block nav_users %}{% endblock %}">
+            👥 Users
+          </a>
+        </template>
+        <template x-if="isAdmin">
+          <a href="/ui/logs"
+             class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-700 text-sm
+                    {% block nav_logs %}{% endblock %}">
+            📋 Logs
+          </a>
+        </template>
+      </nav>
+
+      <div class="px-4 py-3 border-t border-gray-700 text-xs text-gray-400">
+        <div x-text="username" class="font-medium text-gray-300 truncate"></div>
+        <div x-text="groups.join(', ')" class="truncate mt-0.5"></div>
+        <button @click="logout()"
+                class="mt-2 text-red-400 hover:text-red-300 cursor-pointer">
+          Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="flex-1 overflow-auto p-6">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script>
+    function appShell() {
+      return {
+        username: '',
+        groups: [],
+        isAdmin: false,
+        init() {
+          const token = localStorage.getItem('anc_token');
+          if (!token) { window.location.href = '/ui/login'; return; }
+          this.username = localStorage.getItem('anc_user') || '';
+          try {
+            this.groups = JSON.parse(localStorage.getItem('anc_groups') || '[]');
+          } catch { this.groups = []; }
+          this.isAdmin = this.groups.includes('admins');
+        },
+        logout() {
+          localStorage.removeItem('anc_token');
+          localStorage.removeItem('anc_user');
+          localStorage.removeItem('anc_groups');
+          window.location.href = '/ui/login';
+        },
+        token() { return localStorage.getItem('anc_token') || ''; },
+      };
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

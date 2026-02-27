@@ -13,3 +13,7 @@ Thumbs.db
 # Ignorar archivos de logs y bases de datos temporales
 *.log
 *.sqlite3
+
+CLAUDE.md
+project.json
+server/.env

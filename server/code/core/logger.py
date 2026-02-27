@@ -2,8 +2,8 @@
 
 from typing import Optional, Dict, Any
 from fastapi import Request, Response
-from code.core.utils import now_tz
-from code.core.ancdb import ancDB
+from core.utils import now_tz
+from db.client import get_collection
 
 
 class LogEntry:
@@ -38,9 +38,8 @@ class LogEntry:
             "user": self.user,
             "ip": self.ip,
             "success": self.success,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
-        # Añadir campos extra directamente al nivel raíz
         base.update(self.extra)
         return base
 
@@ -48,7 +47,7 @@ class LogEntry:
         collection.insert_one(self.to_dict())
 
     def save_default(self):
-        self.save(ancDB().get_collection("log"))
+        self.save(get_collection("log"))
 
     @classmethod
     def from_request(
@@ -71,5 +70,5 @@ class LogEntry:
             ip=ip,
             success=success,
             status_code=response.status_code,
-            extra=extra
+            extra=extra,
         )

@@ -1,0 +1,1208 @@
+{% extends "base.html" %}
+
+{% block title %}Anchors — Anchor{% endblock %}
+{% block nav_anchors %}bg-gray-700 text-white{% endblock %}
+
+{% block content %}
+<div x-data="anchorsPage()" x-init="init()">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-5">
+    <h2 class="text-xl font-semibold text-gray-800">Anchors</h2>
+    <div class="flex gap-2">
+      <button @click="openImport()"
+              class="border border-gray-300 hover:bg-gray-50 text-gray-600 text-sm px-4 py-2 rounded">
+        ↑ Import JSON
+      </button>
+      <button @click="openCreate()"
+              class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
+        + New Anchor
+      </button>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="flex gap-3 mb-4 flex-wrap">
+    <input x-model="search" type="text" placeholder="Filter by name or note…"
+           class="border border-gray-300 rounded px-3 py-2 text-sm w-60 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+    <select x-model="typeFilter"
+            class="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+      <option value="">All types</option>
+      <option value="ssh">ssh</option>
+      <option value="local">local</option>
+      <option value="files">files</option>
+      <option value="wf">wf</option>
+    </select>
+  </div>
+
+  <!-- Page error -->
+  <div x-show="pageError"
+       class="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 flex justify-between">
+    <span x-text="pageError"></span>
+    <button @click="pageError=''" class="ml-3 font-bold text-red-400 hover:text-red-700">✕</button>
+  </div>
+
+  <!-- Anchors table -->
+  <div class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-200">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium text-gray-600">Name</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-600 w-20">Type</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-600">Note</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-600">Groups</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-600">Updated</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="a in filtered" :key="a.name">
+
+          <!-- Main row -->
+          <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+            <td class="px-4 py-3">
+              <button @click="toggleExpand(a.name)"
+                      class="font-mono text-blue-700 text-left hover:underline focus:outline-none font-medium">
+                <span x-text="a.name"></span>
+              </button>
+            </td>
+            <td class="px-4 py-3">
+              <span :class="typeBadge(a.type)"
+                    class="text-xs font-medium px-2 py-0.5 rounded-full" x-text="a.type"></span>
+            </td>
+            <td class="px-4 py-3 text-gray-500 text-xs max-w-xs truncate"
+                :title="a.note" x-text="a.note||'—'"></td>
+            <td class="px-4 py-3">
+              <div class="flex flex-wrap gap-1">
+                <span x-show="!(a.groups||[]).length"
+                      class="text-gray-400 text-xs italic">all users</span>
+                <template x-for="g in (a.groups||[])" :key="g">
+                  <span class="text-xs bg-purple-100 text-purple-800 rounded px-1.5 py-0.5" x-text="g"></span>
+                </template>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-gray-400 text-xs" x-text="fmt(a.last_updated)"></td>
+            <td class="px-4 py-2 text-right whitespace-nowrap">
+              <button @click="openEdit(a)"
+                      class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 hover:bg-yellow-50 hover:border-yellow-300 text-gray-600 mr-1">
+                ✏️ Edit
+              </button>
+              <button x-show="a.owned" @click="openPerms(a)"
+                      class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 hover:bg-purple-50 hover:border-purple-300 text-gray-600 mr-1">
+                🔒 Access
+              </button>
+              <button x-show="a.owned" @click="openDelete(a.name)"
+                      class="inline-flex items-center px-2 py-1 text-xs rounded border border-gray-200 hover:bg-red-50 hover:border-red-300 text-gray-600">
+                🗑
+              </button>
+            </td>
+          </tr>
+
+          <!-- Expanded JSON row -->
+          <tr x-show="expanded===a.name" x-cloak>
+            <td colspan="6" class="bg-gray-950 border-b border-gray-800 px-0">
+              <!-- Loading -->
+              <div x-show="anchorJsonLoading[a.name]"
+                   class="px-6 py-5 text-center text-gray-500 text-xs">
+                Loading…
+              </div>
+              <!-- JSON view -->
+              <template x-if="anchorJson[a.name] && !anchorJsonLoading[a.name]">
+                <div>
+                  <div class="flex justify-between items-center px-5 pt-3 pb-1">
+                    <span class="text-xs text-gray-500 font-medium tracking-wide uppercase">JSON</span>
+                    <button @click="navigator.clipboard.writeText(JSON.stringify(anchorJson[a.name], null, 2))"
+                            class="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1">
+                      📋 Copy
+                    </button>
+                  </div>
+                  <pre class="px-5 pb-4 pt-1 font-mono text-xs text-emerald-300 leading-relaxed
+                               overflow-auto max-h-72 whitespace-pre"
+                       x-text="JSON.stringify(anchorJson[a.name], null, 2)"></pre>
+                </div>
+              </template>
+            </td>
+          </tr>
+
+        </template>
+
+        <tr x-show="filtered.length===0">
+          <td colspan="6" class="px-4 py-10 text-center text-gray-400">No anchors found.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       CREATE MODAL
+       ═══════════════════════════════════════════════════════ -->
+  <div x-show="modal==='create'"
+       class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" @click.stop>
+      <div class="px-6 pt-5 pb-3 border-b border-gray-100">
+        <h3 class="text-lg font-semibold text-gray-800">New Anchor</h3>
+      </div>
+      <form @submit.prevent="createAnchor()" class="px-6 py-5 space-y-4">
+
+        <!-- Type selector -->
+        <div>
+          <label class="label">Type *</label>
+          <div class="grid grid-cols-4 gap-2">
+            <template x-for="t in ['ssh','local','files','wf']" :key="t">
+              <button type="button"
+                      @click="cForm.type=t"
+                      :class="cForm.type===t
+                        ? 'ring-2 ring-blue-500 bg-blue-50 text-blue-700 border-blue-300'
+                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border-gray-200'"
+                      class="border rounded py-2 text-sm font-medium transition-colors"
+                      x-text="t">
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Name (always) -->
+        <div>
+          <label class="label">Name *</label>
+          <input x-model="cForm.name" required placeholder="my-server"
+                 class="input font-mono" />
+          <p class="text-xs text-gray-400 mt-0.5">Unique identifier — no spaces</p>
+        </div>
+
+        <!-- SSH-specific fields -->
+        <template x-if="cForm.type==='ssh'">
+          <div class="space-y-4">
+
+            <!-- Host + Port -->
+            <div class="grid grid-cols-3 gap-3">
+              <div class="col-span-2">
+                <label class="label">Server address *</label>
+                <input x-model="cForm.host" required placeholder="192.168.1.10 or myserver.com"
+                       class="input" />
+              </div>
+              <div>
+                <label class="label">Port</label>
+                <input x-model.number="cForm.port" type="number" placeholder="22"
+                       class="input" min="1" max="65535" />
+              </div>
+            </div>
+
+            <!-- User -->
+            <div>
+              <label class="label">Login user *</label>
+              <input x-model="cForm.user" required placeholder="root, ubuntu, deploy…"
+                     class="input" />
+            </div>
+
+            <!-- ── Authentication subsection ── -->
+            <div class="bg-gray-50 rounded-xl p-4 space-y-4">
+              <div>
+                <p class="text-sm font-semibold text-gray-700">Authentication</p>
+                <p class="text-xs text-gray-400 mt-0.5">Optional — use a private key, a password, or both.</p>
+              </div>
+
+              <!-- Private key (recommended) -->
+              <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <label class="label mb-0">Private key</label>
+                  <span class="text-xs bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 font-medium">recommended</span>
+                </div>
+                <!-- Mode pills -->
+                <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+                  <button type="button"
+                          @click="cForm.keyMode='vault-ref'; cForm.key=''"
+                          :class="cForm.keyMode==='vault-ref' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔑 From vault</button>
+                  <button type="button"
+                          @click="cForm.keyMode='new-secret'; cForm.key=''"
+                          :class="cForm.keyMode==='new-secret' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔒 New secret</button>
+                  <button type="button"
+                          @click="cForm.keyMode='plain'; cForm.key=''"
+                          :class="cForm.keyMode==='plain' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 transition-colors">✏️ Plain path</button>
+                </div>
+                <!-- vault-ref -->
+                <template x-if="cForm.keyMode==='vault-ref'">
+                  <div class="space-y-1">
+                    <select class="input"
+                            @change="cForm.key='[[secret:'+$event.target.value+']]'; $event.target.value=''">
+                      <option value="">— pick from vault —</option>
+                      <template x-for="s in vaultSecrets" :key="s">
+                        <option :value="s" x-text="s"></option>
+                      </template>
+                    </select>
+                    <p x-show="cForm.key" class="text-xs font-mono text-green-700" x-text="cForm.key"></p>
+                    <p x-show="!vaultSecrets.length" class="text-xs text-gray-400 italic">No secrets in vault yet.</p>
+                  </div>
+                </template>
+                <!-- new-secret -->
+                <template x-if="cForm.keyMode==='new-secret'">
+                  <div class="space-y-2">
+                    <textarea x-model="cForm.key" rows="4"
+                              placeholder="Paste your private key here&#10;-----BEGIN OPENSSH PRIVATE KEY-----&#10;b3BlbnNzaC1rZXktdjEAAAAA…&#10;-----END OPENSSH PRIVATE KEY-----"
+                              class="input font-mono text-xs resize-y"></textarea>
+                    <input x-model="cForm.keySecretPath"
+                           placeholder="Vault name, e.g. servers/prod-key"
+                           class="input text-xs font-mono" />
+                    <p class="text-xs text-gray-400">Stored encrypted. The anchor uses <code class="bg-gray-100 px-1 rounded">[[secret:name]]</code> — the raw key never touches disk.</p>
+                  </div>
+                </template>
+                <!-- plain -->
+                <template x-if="cForm.keyMode==='plain'">
+                  <input x-model="cForm.key"
+                         placeholder="Path to key file, e.g. ~/.ssh/id_rsa"
+                         class="input font-mono text-sm" />
+                </template>
+              </div>
+
+              <!-- Divider -->
+              <div class="flex items-center gap-3">
+                <div class="flex-1 border-t border-gray-200"></div>
+                <span class="text-xs text-gray-400 shrink-0">or add a password</span>
+                <div class="flex-1 border-t border-gray-200"></div>
+              </div>
+
+              <!-- Password -->
+              <div class="space-y-2">
+                <label class="label mb-0">Password</label>
+                <!-- Mode pills -->
+                <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+                  <button type="button"
+                          @click="cForm.passwordMode='vault-ref'; cForm.password=''"
+                          :class="cForm.passwordMode==='vault-ref' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔑 From vault</button>
+                  <button type="button"
+                          @click="cForm.passwordMode='new-secret'; cForm.password=''"
+                          :class="cForm.passwordMode==='new-secret' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔒 New secret</button>
+                  <button type="button"
+                          @click="cForm.passwordMode='plain'; cForm.password=''"
+                          :class="cForm.passwordMode==='plain' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 transition-colors">✏️ Plain</button>
+                </div>
+                <!-- vault-ref -->
+                <template x-if="cForm.passwordMode==='vault-ref'">
+                  <div class="space-y-1">
+                    <select class="input"
+                            @change="cForm.password='[[secret:'+$event.target.value+']]'; $event.target.value=''">
+                      <option value="">— pick from vault —</option>
+                      <template x-for="s in vaultSecrets" :key="s">
+                        <option :value="s" x-text="s"></option>
+                      </template>
+                    </select>
+                    <p x-show="cForm.password" class="text-xs font-mono text-green-700" x-text="cForm.password"></p>
+                    <p x-show="!vaultSecrets.length" class="text-xs text-gray-400 italic">No secrets in vault yet.</p>
+                  </div>
+                </template>
+                <!-- new-secret -->
+                <template x-if="cForm.passwordMode==='new-secret'">
+                  <div class="space-y-2">
+                    <input x-model="cForm.password" type="text"
+                           placeholder="Type the password — it will be encrypted before saving"
+                           class="input" />
+                    <input x-model="cForm.passwordSecretPath"
+                           placeholder="Vault name, e.g. servers/prod-pass"
+                           class="input text-xs font-mono" />
+                  </div>
+                </template>
+                <!-- plain -->
+                <template x-if="cForm.passwordMode==='plain'">
+                  <input x-model="cForm.password" type="text"
+                         placeholder="Type a password"
+                         class="input" />
+                </template>
+              </div>
+            </div>
+
+            <!-- Paths on this server (collapsible) -->
+            <div class="border-t border-gray-100 pt-3">
+              <button type="button" @click="cForm.showRoutes = !cForm.showRoutes"
+                      class="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900">
+                <span x-text="cForm.showRoutes ? '▼' : '▶'" class="text-gray-400"></span>
+                Paths on this server
+                <span x-show="(cForm.routes||[]).length"
+                      class="text-blue-600 font-normal"
+                      x-text="'(' + cForm.routes.length + ')'"></span>
+              </button>
+              <p class="text-xs text-gray-400 mt-0.5 ml-4">
+                Optional — note common directories so teammates know what's where.
+              </p>
+              <div x-show="cForm.showRoutes" class="mt-2 space-y-1.5">
+                <div class="grid text-xs font-medium text-gray-400 mb-1 px-0.5"
+                     style="grid-template-columns:8rem 1fr 1.5rem">
+                  <span>Path</span>
+                  <span>What's there</span>
+                </div>
+                <template x-for="(route, i) in cForm.routes" :key="i">
+                  <div class="flex gap-2 items-center">
+                    <input x-model="route.path" placeholder="/srv"
+                           class="input text-xs font-mono shrink-0" style="width:8rem" />
+                    <input x-model="route.comment" placeholder="e.g. Backend API files"
+                           class="input text-xs flex-1" />
+                    <button type="button" @click="cForm.routes.splice(i,1)"
+                            class="text-red-400 hover:text-red-600 px-1 shrink-0 text-sm leading-none">✕</button>
+                  </div>
+                </template>
+                <button type="button"
+                        @click="cForm.routes.push({path:'',comment:''})"
+                        class="text-xs text-blue-600 hover:underline mt-1">
+                  + Add path
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </template>
+
+        <!-- Local-specific fields -->
+        <template x-if="cForm.type==='local'">
+          <div>
+            <label class="label">Path *</label>
+            <input x-model="cForm.path" required placeholder="~/projects/myapp"
+                   class="input font-mono" />
+          </div>
+        </template>
+
+        <!-- Files / WF info -->
+        <template x-if="cForm.type==='files' || cForm.type==='wf'">
+          <div class="text-xs text-gray-600 rounded px-3 py-2.5"
+               :class="cForm.type==='files' ? 'bg-orange-50' : 'bg-purple-50'">
+            <span x-show="cForm.type==='files'">
+              📁 Create the anchor here, then populate it from the CLI with
+              <code class="bg-white px-1 rounded">anc cr &lt;name&gt;</code>.
+            </span>
+            <span x-show="cForm.type==='wf'">
+              ⚙️ Create the anchor here, then define tasks from the CLI or by editing the JSON directly.
+            </span>
+          </div>
+        </template>
+
+        <!-- Note (always) -->
+        <div>
+          <label class="label">Note</label>
+          <input x-model="cForm.note" placeholder="What this anchor is for" class="input" />
+        </div>
+
+        <!-- Groups -->
+        <div>
+          <label class="label">Groups that can access</label>
+          <p class="text-xs text-gray-400 -mt-0.5 mb-1.5">
+            Leave empty to allow all authenticated users.
+          </p>
+          <div class="flex flex-wrap gap-1 mb-1.5">
+            <template x-for="g in cForm.groups" :key="g">
+              <span class="tag-purple">
+                <span x-text="g"></span>
+                <button type="button"
+                        @click="cForm.groups=cForm.groups.filter(x=>x!==g)"
+                        class="tag-x">✕</button>
+              </span>
+            </template>
+          </div>
+          <div class="flex gap-2">
+            <input x-model="cForm.newGroup" list="avail-groups" placeholder="Add group…"
+                   class="input flex-1 text-xs py-1.5"
+                   @keydown.enter.prevent="addTag(cForm.groups,cForm.newGroup);cForm.newGroup=''"
+                   @keydown.188.prevent="addTag(cForm.groups,cForm.newGroup);cForm.newGroup=''" />
+            <button type="button"
+                    @click="addTag(cForm.groups,cForm.newGroup);cForm.newGroup=''"
+                    class="btn-sm">Add</button>
+          </div>
+        </div>
+
+        <div x-show="modalError"
+             class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
+             x-text="modalError"></div>
+
+        <div class="flex justify-end gap-3 pt-1">
+          <button type="button" @click="modal=null"
+                  class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button type="submit" :disabled="saving"
+                  class="text-sm px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+            <span x-show="!saving">Create</span><span x-show="saving">Creating…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       EDIT MODAL
+       ═══════════════════════════════════════════════════════ -->
+  <div x-show="modal==='edit'"
+       class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" @click.stop>
+      <div class="px-6 pt-5 pb-3 border-b border-gray-100">
+        <h3 class="font-semibold text-gray-800">Edit Anchor</h3>
+        <p class="font-mono text-xs text-blue-600 mt-0.5">
+          <span x-text="eForm.name"></span>
+          <span class="ml-1 text-gray-400"
+                :class="typeBadge(eForm.type)"
+                class="text-xs font-medium px-1.5 rounded-full"
+                x-text="eForm.type"></span>
+        </p>
+      </div>
+      <form @submit.prevent="updateAnchor()" class="px-6 py-5 space-y-4">
+
+        <!-- SSH fields -->
+        <template x-if="eForm.type==='ssh'">
+          <div class="space-y-4">
+
+            <!-- Host + Port -->
+            <div class="grid grid-cols-3 gap-3">
+              <div class="col-span-2">
+                <label class="label">Server address</label>
+                <input x-model="eForm.host" class="input" placeholder="192.168.1.10 or myserver.com" />
+              </div>
+              <div>
+                <label class="label">Port</label>
+                <input x-model.number="eForm.port" type="number" class="input" min="1" max="65535" />
+              </div>
+            </div>
+
+            <!-- User -->
+            <div>
+              <label class="label">Login user</label>
+              <input x-model="eForm.user" class="input" />
+            </div>
+
+            <!-- ── Authentication subsection (edit) ── -->
+            <div class="bg-gray-50 rounded-xl p-4 space-y-4">
+              <div>
+                <p class="text-sm font-semibold text-gray-700">Authentication</p>
+                <p class="text-xs text-gray-400 mt-0.5">Leave blank to keep current values.</p>
+              </div>
+
+              <!-- Private key (recommended) -->
+              <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <label class="label mb-0">Private key</label>
+                  <span class="text-xs bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 font-medium">recommended</span>
+                  <span class="text-xs text-gray-400 ml-auto">(blank = keep current)</span>
+                </div>
+                <!-- Mode pills -->
+                <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+                  <button type="button"
+                          @click="eForm.keyMode='vault-ref'; eForm.key=''"
+                          :class="eForm.keyMode==='vault-ref' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔑 From vault</button>
+                  <button type="button"
+                          @click="eForm.keyMode='new-secret'; eForm.key=''"
+                          :class="eForm.keyMode==='new-secret' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔒 New secret</button>
+                  <button type="button"
+                          @click="eForm.keyMode='plain'; eForm.key=''"
+                          :class="eForm.keyMode==='plain' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 transition-colors">✏️ Plain path</button>
+                </div>
+                <!-- vault-ref -->
+                <template x-if="eForm.keyMode==='vault-ref'">
+                  <div class="space-y-1">
+                    <select class="input"
+                            @change="eForm.key='[[secret:'+$event.target.value+']]'; $event.target.value=''">
+                      <option value="">— pick from vault —</option>
+                      <template x-for="s in vaultSecrets" :key="s">
+                        <option :value="s" x-text="s"></option>
+                      </template>
+                    </select>
+                    <p x-show="eForm.key" class="text-xs font-mono text-green-700" x-text="eForm.key"></p>
+                    <p x-show="!vaultSecrets.length" class="text-xs text-gray-400 italic">No secrets in vault yet.</p>
+                  </div>
+                </template>
+                <!-- new-secret -->
+                <template x-if="eForm.keyMode==='new-secret'">
+                  <div class="space-y-2">
+                    <textarea x-model="eForm.key" rows="4"
+                              placeholder="Paste the full private key here&#10;-----BEGIN OPENSSH PRIVATE KEY-----&#10;b3BlbnNzaC1rZXktdjEAAAAA…&#10;-----END OPENSSH PRIVATE KEY-----"
+                              class="input font-mono text-xs resize-y"></textarea>
+                    <input x-model="eForm.keySecretPath"
+                           placeholder="Vault name, e.g. servers/prod-key"
+                           class="input text-xs font-mono" />
+                    <p class="text-xs text-gray-400">Stored encrypted. The anchor uses <code class="bg-gray-100 px-1 rounded">[[secret:name]]</code> — the raw key never touches disk.</p>
+                  </div>
+                </template>
+                <!-- plain -->
+                <template x-if="eForm.keyMode==='plain'">
+                  <input x-model="eForm.key"
+                         placeholder="Path to key file, e.g. ~/.ssh/id_rsa  (blank = keep current)"
+                         class="input font-mono text-sm" />
+                </template>
+              </div>
+
+              <!-- Divider -->
+              <div class="flex items-center gap-3">
+                <div class="flex-1 border-t border-gray-200"></div>
+                <span class="text-xs text-gray-400 shrink-0">or add a password</span>
+                <div class="flex-1 border-t border-gray-200"></div>
+              </div>
+
+              <!-- Password -->
+              <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <label class="label mb-0">Password</label>
+                  <span class="text-xs text-gray-400 ml-auto">(blank = keep current)</span>
+                </div>
+                <!-- Mode pills -->
+                <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+                  <button type="button"
+                          @click="eForm.passwordMode='vault-ref'; eForm.password=''"
+                          :class="eForm.passwordMode==='vault-ref' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔑 From vault</button>
+                  <button type="button"
+                          @click="eForm.passwordMode='new-secret'; eForm.password=''"
+                          :class="eForm.passwordMode==='new-secret' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 border-r border-gray-200 transition-colors">🔒 New secret</button>
+                  <button type="button"
+                          @click="eForm.passwordMode='plain'; eForm.password=''"
+                          :class="eForm.passwordMode==='plain' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                          class="flex-1 px-3 py-1.5 transition-colors">✏️ Plain</button>
+                </div>
+                <!-- vault-ref -->
+                <template x-if="eForm.passwordMode==='vault-ref'">
+                  <div class="space-y-1">
+                    <select class="input"
+                            @change="eForm.password='[[secret:'+$event.target.value+']]'; $event.target.value=''">
+                      <option value="">— pick from vault —</option>
+                      <template x-for="s in vaultSecrets" :key="s">
+                        <option :value="s" x-text="s"></option>
+                      </template>
+                    </select>
+                    <p x-show="eForm.password" class="text-xs font-mono text-green-700" x-text="eForm.password"></p>
+                    <p x-show="!vaultSecrets.length" class="text-xs text-gray-400 italic">No secrets in vault yet.</p>
+                  </div>
+                </template>
+                <!-- new-secret -->
+                <template x-if="eForm.passwordMode==='new-secret'">
+                  <div class="space-y-2">
+                    <input x-model="eForm.password" type="text"
+                           placeholder="Type the new password — it will be encrypted before saving"
+                           class="input" />
+                    <input x-model="eForm.passwordSecretPath"
+                           placeholder="Vault name, e.g. servers/prod-pass"
+                           class="input text-xs font-mono" />
+                  </div>
+                </template>
+                <!-- plain -->
+                <template x-if="eForm.passwordMode==='plain'">
+                  <input x-model="eForm.password" type="text"
+                         placeholder="Type a new password, or leave blank to keep current"
+                         class="input" />
+                </template>
+              </div>
+            </div>
+
+            <!-- Extra paths editor -->
+            <div class="border-t border-gray-100 pt-3">
+              <button type="button" @click="eForm.showRoutes = !eForm.showRoutes"
+                      class="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900">
+                <span x-text="eForm.showRoutes ? '▼' : '▶'" class="text-gray-400"></span>
+                Paths on this server
+                <span x-show="(eForm.routes||[]).length"
+                      class="text-blue-600 font-normal"
+                      x-text="'(' + eForm.routes.length + ')'"></span>
+              </button>
+              <div x-show="eForm.showRoutes" class="mt-2 space-y-1.5">
+                <div class="grid text-xs font-medium text-gray-400 mb-1 px-0.5"
+                     style="grid-template-columns:8rem 1fr 1.5rem">
+                  <span>Path</span><span>What's there</span>
+                </div>
+                <template x-for="(route, i) in eForm.routes" :key="i">
+                  <div class="flex gap-2 items-center">
+                    <input x-model="route.path" placeholder="/srv"
+                           class="input text-xs font-mono shrink-0" style="width:8rem" />
+                    <input x-model="route.comment" placeholder="e.g. Backend API files"
+                           class="input text-xs flex-1" />
+                    <button type="button" @click="eForm.routes.splice(i,1)"
+                            class="text-red-400 hover:text-red-600 px-1 shrink-0 text-sm leading-none">✕</button>
+                  </div>
+                </template>
+                <button type="button"
+                        @click="eForm.routes.push({path:'',comment:''})"
+                        class="text-xs text-blue-600 hover:underline mt-1">
+                  + Add path
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </template>
+
+        <!-- Local fields -->
+        <template x-if="eForm.type==='local'">
+          <div>
+            <label class="label">Path</label>
+            <input x-model="eForm.path" class="input font-mono" />
+          </div>
+        </template>
+
+        <!-- Files / WF: note only -->
+        <template x-if="eForm.type==='files' || eForm.type==='wf'">
+          <div class="text-xs text-gray-500 rounded px-3 py-2"
+               :class="eForm.type==='files' ? 'bg-orange-50' : 'bg-purple-50'">
+            <span x-show="eForm.type==='files'">
+              📁 Content (files snapshot) is managed via the CLI. Edit note and groups here.
+            </span>
+            <span x-show="eForm.type==='wf'">
+              ⚙️ Workflow tasks are managed via the CLI. Edit note and groups here.
+            </span>
+          </div>
+        </template>
+
+        <!-- Note (always) -->
+        <div>
+          <label class="label">Note</label>
+          <input x-model="eForm.note" placeholder="What this anchor is for" class="input" />
+        </div>
+
+        <p class="text-xs text-gray-400">
+          To change groups — use the <strong>🔒 Access</strong> button (creator/admin only).
+        </p>
+
+        <div x-show="modalError"
+             class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
+             x-text="modalError"></div>
+
+        <div class="flex justify-end gap-3 pt-1">
+          <button type="button" @click="modal=null"
+                  class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button type="submit" :disabled="saving"
+                  class="text-sm px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50">
+            <span x-show="!saving">Save</span><span x-show="saving">Saving…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       PERMISSIONS MODAL (creator / admin only)
+       ═══════════════════════════════════════════════════════ -->
+  <div x-show="modal==='perms'"
+       class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg" @click.stop>
+      <div class="px-6 pt-5 pb-3 border-b border-gray-100">
+        <h3 class="font-semibold text-gray-800">Access Control</h3>
+        <p class="font-mono text-xs text-blue-600 mt-0.5" x-text="pForm.name"></p>
+      </div>
+      <div class="px-6 py-5 space-y-5">
+
+        <div>
+          <label class="label">Groups</label>
+          <p class="text-xs text-gray-400 -mt-0.5 mb-1.5">
+            Leave empty to allow all authenticated users.
+          </p>
+          <div class="min-h-[28px] flex flex-wrap gap-1 mb-1.5">
+            <span x-show="!pForm.groups.length"
+                  class="text-gray-400 text-xs py-0.5 italic">
+              No groups — all authenticated users can access.
+            </span>
+            <template x-for="g in pForm.groups" :key="g">
+              <span class="tag-purple">
+                <span x-text="g"></span>
+                <button type="button"
+                        @click="pForm.groups=pForm.groups.filter(x=>x!==g)"
+                        class="tag-x">✕</button>
+              </span>
+            </template>
+          </div>
+          <div class="flex gap-2">
+            <input x-model="pForm.newGroup" list="avail-groups" placeholder="Add group…"
+                   class="input flex-1 text-xs py-1.5"
+                   @keydown.enter.prevent="addTag(pForm.groups,pForm.newGroup);pForm.newGroup=''"
+                   @keydown.188.prevent="addTag(pForm.groups,pForm.newGroup);pForm.newGroup=''" />
+            <button type="button"
+                    @click="addTag(pForm.groups,pForm.newGroup);pForm.newGroup=''"
+                    class="btn-sm">Add</button>
+          </div>
+        </div>
+
+        <div x-show="modalError"
+             class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
+             x-text="modalError"></div>
+
+        <div class="flex justify-end gap-3 pt-1">
+          <button @click="modal=null"
+                  class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button @click="savePerms()" :disabled="saving"
+                  class="text-sm px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
+            <span x-show="!saving">Save access</span><span x-show="saving">Saving…</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       DELETE MODAL
+       ═══════════════════════════════════════════════════════ -->
+  <div x-show="modal==='delete'"
+       class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
+      <h3 class="text-lg font-semibold text-red-700 mb-2">Delete Anchor</h3>
+      <p class="text-sm text-gray-600 mb-5">
+        Permanently delete
+        <strong class="font-mono break-all" x-text="dName"></strong>?
+        This cannot be undone.
+      </p>
+      <div class="flex justify-end gap-3">
+        <button @click="modal=null"
+                class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+        <button @click="deleteAnchor()"
+                class="text-sm px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       IMPORT JSON MODAL
+       ═══════════════════════════════════════════════════════ -->
+  <div x-show="modal==='import'"
+       class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto" @click.stop>
+      <div class="px-6 pt-5 pb-3 border-b border-gray-100">
+        <h3 class="text-lg font-semibold text-gray-800">Import Anchor JSON</h3>
+        <p class="text-xs text-gray-400 mt-0.5">
+          Paste a raw anchor JSON document. Required fields: <code class="bg-gray-100 px-1 rounded">name</code>
+          and <code class="bg-gray-100 px-1 rounded">type</code>.
+          If an anchor with the same name exists it will be overwritten.
+        </p>
+      </div>
+      <div class="px-6 py-5 space-y-4">
+        <textarea x-model="importJson" rows="14"
+                  placeholder='{&#10;  "type": "ssh",&#10;  "name": "my-server",&#10;  "host": "192.168.1.10",&#10;  "user": "root",&#10;  "port": 22,&#10;  "note": "Production web server"&#10;}'
+                  class="input font-mono text-xs resize-y"></textarea>
+
+        <div x-show="modalError"
+             class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
+             x-text="modalError"></div>
+
+        <div class="flex justify-end gap-3">
+          <button @click="modal=null"
+                  class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button @click="importAnchor()" :disabled="saving"
+                  class="text-sm px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+            <span x-show="!saving">Import</span><span x-show="saving">Importing…</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Datalist for group autocomplete -->
+  <datalist id="avail-groups">
+    <template x-for="g in availableGroups" :key="g"><option :value="g"></option></template>
+  </datalist>
+
+</div>
+
+<!-- Shared micro-CSS (same as secrets.html) -->
+<style>
+  .label { display:block; font-size:.875rem; font-weight:500; color:#374151; margin-bottom:.25rem; }
+  .input { width:100%; border:1px solid #d1d5db; border-radius:.375rem; padding:.5rem .75rem;
+           font-size:.875rem; outline:none; }
+  .input:focus { border-color:#3b82f6; box-shadow:0 0 0 2px #bfdbfe; }
+  .btn-sm { padding:.375rem .75rem; border:1px solid #3b82f6; border-radius:.375rem;
+            font-size:.75rem; white-space:nowrap; color:#fff; background:#3b82f6; cursor:pointer; }
+  .btn-sm:hover { background:#2563eb; border-color:#2563eb; }
+  .tag-purple { display:inline-flex; align-items:center; background:#f3e8ff;
+                color:#6b21a8; font-size:.75rem; border-radius:.25rem; padding:0 .5rem; }
+  .tag-x { margin-left:.25rem; font-weight:700; line-height:1.5rem; opacity:.5; cursor:pointer; }
+  .tag-x:hover { opacity:1; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function anchorsPage() {
+  return {
+    anchors: [],
+    search: '',
+    typeFilter: '',
+    expanded: null,
+    availableGroups: [],
+
+    modal: null,
+    saving: false,
+    modalError: '',
+    pageError: '',
+
+    // JSON expand cache
+    anchorJson: {},
+    anchorJsonLoading: {},
+
+    // Import
+    importJson: '',
+
+    // Vault secrets for auth pickers
+    vaultSecrets: [],
+
+    // Create form
+    cForm: {
+      type: 'ssh', name: '', host: '', user: '', port: 22,
+      password: '', passwordMode: 'new-secret', passwordSecretPath: '',
+      key: '',     keyMode: 'new-secret',       keySecretPath: '',
+      showRoutes: false, routes: [],
+      path: '', note: '', groups: [], newGroup: '',
+    },
+
+    // Edit form
+    eForm: {
+      name: '', type: '', host: '', user: '', port: 22,
+      password: '', passwordMode: 'plain', passwordSecretPath: '',
+      key: '',     keyMode: 'plain',       keySecretPath: '',
+      showRoutes: false, routes: [],
+      path: '', note: '',
+    },
+
+    // Permissions form
+    pForm: { name: '', groups: [], newGroup: '' },
+
+    // Delete
+    dName: '',
+
+    // ── Computed ──────────────────────────────────────────
+    get filtered() {
+      const q = this.search.toLowerCase();
+      const t = this.typeFilter;
+      return this.anchors.filter(a => {
+        const matchQ = !q ||
+          a.name.toLowerCase().includes(q) ||
+          (a.note || '').toLowerCase().includes(q);
+        const matchT = !t || a.type === t;
+        return matchQ && matchT;
+      });
+    },
+
+    // ── Init ──────────────────────────────────────────────
+    async init() {
+      await this.loadAnchors();
+      this.loadGroups();
+      this.loadVaultSecrets();
+    },
+
+    async loadVaultSecrets() {
+      try {
+        const r = await fetch('/vault', { headers: this.auth() });
+        if (r.ok) {
+          const list = await r.json();
+          this.vaultSecrets = list.map(s => s.id).sort();
+        }
+      } catch {}
+    },
+
+    async loadAnchors() {
+      this.pageError = '';
+      try {
+        const r = await fetch('/anchors', { headers: this.auth() });
+        if (r.status === 401) { location.href = '/ui/login'; return; }
+        if (!r.ok) { this.pageError = 'Failed to load anchors'; return; }
+        const list = await r.json();
+        const me = localStorage.getItem('anc_user') || '';
+        const myGroups = JSON.parse(localStorage.getItem('anc_groups') || '[]');
+        const isAdmin = myGroups.includes('admins');
+        this.anchors = list.map(a => ({
+          ...a,
+          owned: a.created_by === me || isAdmin,
+        }));
+      } catch { this.pageError = 'Network error loading anchors'; }
+    },
+
+    loadGroups() {
+      const ownGroups = JSON.parse(localStorage.getItem('anc_groups') || '[]');
+      const anchorGroups = this.anchors.flatMap(a => a.groups || []);
+      this.availableGroups = [...new Set([...ownGroups, ...anchorGroups])].sort();
+    },
+
+    async toggleExpand(name) {
+      if (this.expanded === name) { this.expanded = null; return; }
+      this.expanded = name;
+      if (!this.anchorJson[name]) {
+        this.anchorJsonLoading = { ...this.anchorJsonLoading, [name]: true };
+        try {
+          const r = await fetch('/anchors/' + name, { headers: this.auth() });
+          if (r.ok) {
+            const d = await r.json();
+            this.anchorJson = { ...this.anchorJson, [name]: d };
+          }
+        } catch {}
+        finally {
+          const l = { ...this.anchorJsonLoading };
+          delete l[name];
+          this.anchorJsonLoading = l;
+        }
+      }
+    },
+
+    _invalidateJsonCache(name) {
+      const c = { ...this.anchorJson };
+      delete c[name];
+      this.anchorJson = c;
+    },
+
+    typeBadge(type) {
+      const map = {
+        ssh:   'bg-blue-100 text-blue-800',
+        local: 'bg-green-100 text-green-800',
+        files: 'bg-orange-100 text-orange-800',
+        wf:    'bg-purple-100 text-purple-800',
+      };
+      return map[type] || 'bg-gray-100 text-gray-800';
+    },
+
+    // ── Create ────────────────────────────────────────────
+    openCreate() {
+      this.cForm = {
+        type: 'ssh', name: '', host: '', user: '', port: 22,
+        password: '', passwordMode: 'new-secret', passwordSecretPath: '',
+        key: '',     keyMode: 'new-secret',       keySecretPath: '',
+        showRoutes: false, routes: [],
+        path: '', note: '', groups: [], newGroup: '',
+      };
+      this.modalError = '';
+      this.modal = 'create';
+    },
+
+    async createAnchor() {
+      this.saving = true; this.modalError = '';
+      try {
+        const f = this.cForm;
+
+        // Inline secret creation: password
+        if (f.type === 'ssh' && f.passwordMode === 'new-secret' && f.password.trim()) {
+          if (!f.passwordSecretPath.trim()) {
+            this.modalError = 'Provide a vault name for the password.'; return;
+          }
+          const ok = await this._createSecret(f.passwordSecretPath.trim(), f.password.trim());
+          if (!ok) return;
+          f.password = `[[secret:${f.passwordSecretPath.trim()}]]`;
+        }
+
+        // Inline secret creation: private key
+        if (f.type === 'ssh' && f.keyMode === 'new-secret' && f.key.trim()) {
+          if (!f.keySecretPath.trim()) {
+            this.modalError = 'Provide a vault name for the private key.'; return;
+          }
+          const ok = await this._createSecret(f.keySecretPath.trim(), f.key.trim());
+          if (!ok) return;
+          f.key = `[[secret:${f.keySecretPath.trim()}]]`;
+        }
+
+        const body = this._buildCreateBody(f);
+        const r = await fetch('/anchors', {
+          method: 'POST',
+          headers: { ...this.auth(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        if (!r.ok) { this.modalError = data.detail || 'Error creating anchor'; return; }
+        this.modal = null;
+        await this.loadAnchors();
+        this.loadGroups();
+      } catch { this.modalError = 'Network error'; }
+      finally { this.saving = false; }
+    },
+
+    _buildCreateBody(f) {
+      const body = { name: f.name, type: f.type, groups: [...f.groups] };
+      if (f.note) body.note = f.note;
+      if (f.type === 'ssh') {
+        body.host = f.host;
+        body.user = f.user;
+        body.port = f.port || 22;
+        if (f.password.trim()) body.password = f.password.trim();
+        if (f.key.trim()) body.key = f.key.trim();
+        const validRoutes = (f.routes || []).filter(r => r.path.trim());
+        if (validRoutes.length) body.routes = validRoutes;
+      } else if (f.type === 'local') {
+        body.path = f.path;
+      }
+      return body;
+    },
+
+    // ── Secret helper ─────────────────────────────────────
+    async _createSecret(path, plaintext) {
+      const r = await fetch('/vault/' + path, {
+        method: 'POST',
+        headers: { ...this.auth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plaintext }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        this.modalError = `Failed to create secret "${path}": ${d.detail || r.status}`;
+        return false;
+      }
+      return true;
+    },
+
+    // ── Edit ──────────────────────────────────────────────
+    openEdit(a) {
+      this.eForm = {
+        name: a.name,
+        type: a.type,
+        host: a.host || '',
+        user: a.user || '',
+        port: a.port || 22,
+        password: '',   // never pre-filled — leave blank to keep current
+        passwordMode: 'plain', passwordSecretPath: '',
+        key: '',        // never pre-filled — leave blank to keep current
+        keyMode: 'plain',  keySecretPath: '',
+        showRoutes: (a.routes || []).length > 0,
+        routes: (a.routes || []).map(r => ({ ...r })),
+        path: a.path || '',
+        note: a.note || '',
+      };
+      this.modalError = '';
+      this.modal = 'edit';
+    },
+
+    async updateAnchor() {
+      this.saving = true; this.modalError = '';
+      try {
+        const f = this.eForm;
+
+        // Inline secret creation: password
+        if (f.type === 'ssh' && f.passwordMode === 'new-secret' && f.password.trim()) {
+          if (!f.passwordSecretPath.trim()) {
+            this.modalError = 'Provide a vault name for the password.'; return;
+          }
+          const ok = await this._createSecret(f.passwordSecretPath.trim(), f.password.trim());
+          if (!ok) return;
+          f.password = `[[secret:${f.passwordSecretPath.trim()}]]`;
+        }
+
+        // Inline secret creation: private key
+        if (f.type === 'ssh' && f.keyMode === 'new-secret' && f.key.trim()) {
+          if (!f.keySecretPath.trim()) {
+            this.modalError = 'Provide a vault name for the private key.'; return;
+          }
+          const ok = await this._createSecret(f.keySecretPath.trim(), f.key.trim());
+          if (!ok) return;
+          f.key = `[[secret:${f.keySecretPath.trim()}]]`;
+        }
+
+        const patch = { note: f.note };
+        if (f.type === 'ssh') {
+          patch.host = f.host;
+          patch.user = f.user;
+          patch.port = f.port || 22;
+          if (f.password.trim()) patch.password = f.password.trim();
+          if (f.key.trim()) patch.key = f.key.trim();
+          patch.routes = (f.routes || []).filter(r => r.path.trim());
+        } else if (f.type === 'local') {
+          patch.path = f.path;
+        }
+        const r = await fetch('/anchors/' + f.name, {
+          method: 'PATCH',
+          headers: { ...this.auth(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        const data = await r.json();
+        if (!r.ok) { this.modalError = data.detail || 'Error saving'; return; }
+        this._invalidateJsonCache(f.name);
+        this.modal = null;
+        await this.loadAnchors();
+      } catch { this.modalError = 'Network error'; }
+      finally { this.saving = false; }
+    },
+
+    // ── Permissions ───────────────────────────────────────
+    openPerms(a) {
+      this.pForm = {
+        name: a.name,
+        groups: [...(a.groups || [])],
+        newGroup: '',
+      };
+      this.modalError = '';
+      this.modal = 'perms';
+    },
+
+    async savePerms() {
+      this.saving = true; this.modalError = '';
+      try {
+        const r = await fetch('/anchors/' + this.pForm.name, {
+          method: 'PATCH',
+          headers: { ...this.auth(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groups: [...this.pForm.groups] }),
+        });
+        const data = await r.json();
+        if (!r.ok) { this.modalError = data.detail || 'Error saving access'; return; }
+        this.modal = null;
+        await this.loadAnchors();
+        this.loadGroups();
+      } catch { this.modalError = 'Network error'; }
+      finally { this.saving = false; }
+    },
+
+    // ── Delete ────────────────────────────────────────────
+    openDelete(name) { this.dName = name; this.modal = 'delete'; },
+
+    async deleteAnchor() {
+      try {
+        const r = await fetch('/anchors/' + this.dName, {
+          method: 'DELETE',
+          headers: this.auth(),
+        });
+        if (!r.ok) {
+          this.pageError = ((await r.json().catch(() => ({}))).detail) || 'Delete failed';
+        }
+        this._invalidateJsonCache(this.dName);
+        this.modal = null;
+        await this.loadAnchors();
+      } catch { this.pageError = 'Network error'; }
+    },
+
+    // ── Import JSON ───────────────────────────────────────
+    openImport() {
+      this.importJson = '';
+      this.modalError = '';
+      this.modal = 'import';
+    },
+
+    async importAnchor() {
+      this.saving = true; this.modalError = '';
+      try {
+        let data;
+        try { data = JSON.parse(this.importJson); }
+        catch { this.modalError = 'Invalid JSON — check the syntax and try again.'; return; }
+        if (!data.name) { this.modalError = 'The JSON must include a "name" field.'; return; }
+        if (!data.type) { this.modalError = 'The JSON must include a "type" field.'; return; }
+
+        const r = await fetch('/anchors', {
+          method: 'POST',
+          headers: { ...this.auth(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        const res = await r.json();
+        if (!r.ok) { this.modalError = res.detail || 'Import failed'; return; }
+        this._invalidateJsonCache(data.name);
+        this.modal = null;
+        this.importJson = '';
+        await this.loadAnchors();
+        this.loadGroups();
+      } catch { this.modalError = 'Network error'; }
+      finally { this.saving = false; }
+    },
+
+    // ── Helpers ───────────────────────────────────────────
+    addTag(arr, value) {
+      const v = (value || '').trim();
+      if (v && !arr.includes(v)) arr.push(v);
+    },
+
+    auth() {
+      return { Authorization: 'Bearer ' + (localStorage.getItem('anc_token') || '') };
+    },
+
+    fmt(ts) {
+      if (!ts) return '';
+      try { return new Date(ts).toLocaleString(); } catch { return ts; }
+    },
+  };
+}
+</script>
+{% endblock %}

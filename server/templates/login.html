@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anchor — Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-900 min-h-screen flex items-center justify-center" x-data="loginForm()" x-init="init()">
+
+  <div class="bg-white rounded-lg shadow-lg p-8 w-full max-w-sm">
+    <h1 class="text-2xl font-bold text-gray-800 mb-1">⚓ Anchor Vault</h1>
+    <p class="text-sm text-gray-500 mb-6">Sign in to continue</p>
+
+    <form @submit.prevent="login()">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+        <input x-model="username" type="text" required autofocus
+               class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+        <input x-model="password" type="password" required
+               class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+
+      <div x-show="error" x-cloak class="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
+           x-text="error"></div>
+
+      <button type="submit" :disabled="loading"
+              class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded text-sm disabled:opacity-50">
+        <span x-show="!loading">Sign in</span>
+        <span x-show="loading" x-cloak>Signing in…</span>
+      </button>
+    </form>
+  </div>
+
+  <script>
+    function loginForm() {
+      return {
+        username: '',
+        password: '',
+        error: '',
+        loading: false,
+        async init() {
+          if (localStorage.getItem('anc_token')) {
+            window.location.href = '/ui/secrets';
+            return;
+          }
+          // Redirect to setup if no users exist yet
+          try {
+            const res = await fetch('/admin/needs-setup');
+            const data = await res.json();
+            if (data.needs_setup) {
+              window.location.href = '/ui/setup';
+            }
+          } catch { /* ignore — server may still be starting */ }
+        },
+        async login() {
+          this.loading = true;
+          this.error = '';
+          try {
+            const res = await fetch('/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: this.username, password: this.password }),
+            });
+            if (!res.ok) {
+              const data = await res.json();
+              this.error = data.detail || 'Login failed';
+              return;
+            }
+            const data = await res.json();
+            localStorage.setItem('anc_token', data.access_token);
+            localStorage.setItem('anc_user', this.username);
+            // Decode groups from JWT payload
+            try {
+              const payload = JSON.parse(atob(data.access_token.split('.')[1]));
+              localStorage.setItem('anc_groups', JSON.stringify(payload.groups || []));
+            } catch { localStorage.setItem('anc_groups', '[]'); }
+            window.location.href = '/ui/secrets';
+          } catch (e) {
+            this.error = 'Network error — is the server reachable?';
+          } finally {
+            this.loading = false;
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

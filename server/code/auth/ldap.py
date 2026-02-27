@@ -1,56 +1,67 @@
 from ldap3 import Server, Connection, ALL, SUBTREE
-import os
+from fastapi import HTTPException
+from config import settings
+import logging
 
-LDAP_SERVER = os.getenv("LDAP_SERVER", "ldap://ldap:389")
-BASE_DN = os.getenv("LDAP_BASE_DN", "dc=anchor,dc=local")
-ADMIN_DN = os.getenv("LDAP_ADMIN_DN", f"cn=admin,{BASE_DN}")
-ADMIN_PASSWORD = os.getenv("LDAP_ADMIN_PASSWORD", "admin")
+logger = logging.getLogger(__name__)
+
+
+def _check_enabled():
+    if not settings.ldap_enabled:
+        raise HTTPException(status_code=400, detail="LDAP authentication is not enabled")
 
 
 def get_user_dn(username: str) -> str | None:
-    server = Server(LDAP_SERVER, get_info=ALL)
-    conn = Connection(server, user=ADMIN_DN, password=ADMIN_PASSWORD, auto_bind=True)
-
+    _check_enabled()
+    server = Server(settings.LDAP_SERVER, get_info=ALL)
+    conn = Connection(
+        server,
+        user=settings.LDAP_ADMIN_DN,
+        password=settings.LDAP_ADMIN_PASSWORD,
+        auto_bind=True,
+    )
     conn.search(
-        search_base=f"ou=users,{BASE_DN}",
+        search_base=f"ou=users,{settings.LDAP_BASE_DN}",
         search_filter=f"(uid={username})",
         search_scope=SUBTREE,
-        attributes=["uid"]
+        attributes=["uid"],
     )
-
     if conn.entries:
         return conn.entries[0].entry_dn
     return None
 
 
 def ldap_authenticate(username: str, password: str) -> bool:
+    _check_enabled()
     user_dn = get_user_dn(username)
     if not user_dn:
-        print(f"[LDAP] Usuario {username} no encontrado.")
+        logger.warning("LDAP user not found: %s", username)
         return False
-
     try:
-        server = Server(LDAP_SERVER, get_info=ALL)
-        conn = Connection(server, user=user_dn, password=password, auto_bind=True)
+        server = Server(settings.LDAP_SERVER, get_info=ALL)
+        Connection(server, user=user_dn, password=password, auto_bind=True)
         return True
     except Exception as e:
-        print(f"[LDAP] Error autenticando {user_dn}: {e}")
+        logger.warning("LDAP authentication failed for %s: %s", username, e)
         return False
 
 
 def get_user_groups(username: str) -> list[str]:
+    _check_enabled()
     user_dn = get_user_dn(username)
     if not user_dn:
         return []
-
-    server = Server(LDAP_SERVER, get_info=ALL)
-    conn = Connection(server, user=ADMIN_DN, password=ADMIN_PASSWORD, auto_bind=True)
-
+    server = Server(settings.LDAP_SERVER, get_info=ALL)
+    conn = Connection(
+        server,
+        user=settings.LDAP_ADMIN_DN,
+        password=settings.LDAP_ADMIN_PASSWORD,
+        auto_bind=True,
+    )
     conn.search(
-        search_base=f"ou=groups,{BASE_DN}",
+        search_base=f"ou=groups,{settings.LDAP_BASE_DN}",
         search_filter=f"(member={user_dn})",
         search_scope=SUBTREE,
-        attributes=["cn"]
+        attributes=["cn"],
     )
-
     return [entry.cn.value for entry in conn.entries]

@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+
+{% block title %}Users — Anchor Vault{% endblock %}
+{% block nav_users %}bg-gray-700 text-white{% endblock %}
+
+{% block content %}
+<div x-data="usersPage()" x-init="init()" x-cloak>
+
+  <div class="flex items-center justify-between mb-6">
+    <h2 class="text-xl font-semibold text-gray-800">User Management</h2>
+    <button @click="openCreate()"
+            class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
+      + New User
+    </button>
+  </div>
+
+  <div x-show="pageError" x-cloak
+       class="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"
+       x-text="pageError"></div>
+
+  <div x-show="pageMsg" x-cloak
+       class="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2"
+       x-text="pageMsg"></div>
+
+  <div class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-200">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium text-gray-600">Username</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-600">Groups</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-600">Created</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="u in users" :key="u.username">
+          <tr class="border-b border-gray-100 hover:bg-gray-50">
+            <td class="px-4 py-3 font-medium text-gray-800" x-text="u.username"></td>
+            <td class="px-4 py-3 text-gray-600">
+              <template x-for="g in u.groups" :key="g">
+                <span class="inline-block bg-gray-100 text-gray-700 rounded px-2 py-0.5 text-xs mr-1"
+                      x-text="g"></span>
+              </template>
+              <span x-show="!u.groups.length" class="text-gray-400 text-xs">none</span>
+            </td>
+            <td class="px-4 py-3 text-gray-500 text-xs" x-text="fmt(u.created_at)"></td>
+            <td class="px-4 py-3 text-right space-x-3">
+              <button @click="openEdit(u)"
+                      class="text-blue-500 hover:text-blue-700 text-xs">Edit</button>
+              <button @click="confirmDelete(u.username)"
+                      class="text-red-500 hover:text-red-700 text-xs">Delete</button>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="users.length === 0">
+          <td colspan="4" class="px-4 py-8 text-center text-gray-400">No users found.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Create user modal -->
+  <div x-show="modal === 'create'" x-cloak
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6" @click.stop>
+      <h3 class="text-lg font-semibold mb-4">Create User</h3>
+      <form @submit.prevent="createUser()">
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Username *</label>
+            <input x-model="form.username" required
+                   class="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+            <input x-model="form.password" type="password" required
+                   class="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Groups (comma-separated)</label>
+            <input x-model="form.groups" placeholder="dev, admins"
+                   class="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <div x-show="modalError" x-cloak
+             class="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
+             x-text="modalError"></div>
+        <div class="flex justify-end gap-3 mt-5">
+          <button type="button" @click="modal = null"
+                  class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button type="submit" :disabled="saving"
+                  class="text-sm px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+            <span x-show="!saving">Create</span>
+            <span x-show="saving" x-cloak>Creating…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit user modal -->
+  <div x-show="modal === 'edit'" x-cloak
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6" @click.stop>
+      <h3 class="text-lg font-semibold mb-1">Edit Groups</h3>
+      <p class="text-sm text-gray-500 mb-4">User: <strong x-text="eForm.username"></strong></p>
+
+      <!-- Group chips -->
+      <div class="flex flex-wrap gap-1 mb-3 min-h-[2rem] border rounded px-2 py-1.5 bg-gray-50">
+        <template x-for="g in eForm.groups" :key="g">
+          <span class="inline-flex items-center bg-blue-100 text-blue-800 rounded px-2 py-0.5 text-xs gap-1">
+            <span x-text="g"></span>
+            <button type="button" @click="removeGroup(g)" class="hover:text-red-600 font-bold leading-none">✕</button>
+          </span>
+        </template>
+        <span x-show="eForm.groups.length === 0" class="text-gray-400 text-xs self-center">No groups</span>
+      </div>
+
+      <!-- Add group input -->
+      <div class="flex gap-2">
+        <input x-model="eForm.newGroup"
+               list="known-groups-list"
+               placeholder="Add group…"
+               @keydown.enter.prevent="addGroup()"
+               class="flex-1 border rounded px-3 py-1.5 text-sm" />
+        <button type="button" @click="addGroup()"
+                class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Add</button>
+      </div>
+      <datalist id="known-groups-list">
+        <template x-for="g in knownGroups" :key="g">
+          <option :value="g"></option>
+        </template>
+      </datalist>
+
+      <div x-show="modalError" x-cloak
+           class="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
+           x-text="modalError"></div>
+      <div class="flex justify-end gap-3 mt-5">
+        <button type="button" @click="modal = null"
+                class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+        <button type="button" @click="saveEdit()" :disabled="saving"
+                class="text-sm px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+          <span x-show="!saving">Save</span>
+          <span x-show="saving" x-cloak>Saving…</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete confirm modal -->
+  <div x-show="modal === 'delete'" x-cloak
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+      <h3 class="text-lg font-semibold mb-2 text-red-700">Delete User</h3>
+      <p class="text-sm text-gray-600 mb-4">
+        Permanently delete user <strong x-text="deleteTarget"></strong>?
+        This cannot be undone.
+      </p>
+      <div class="flex justify-end gap-3">
+        <button @click="modal = null"
+                class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+        <button @click="deleteUser()"
+                class="text-sm px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function usersPage() {
+  return {
+    users: [],
+    modal: null,
+    modalError: '',
+    pageError: '',
+    pageMsg: '',
+    saving: false,
+    deleteTarget: null,
+    form: { username: '', password: '', groups: '' },
+    eForm: { username: '', groups: [], newGroup: '' },
+    knownGroups: [],
+
+    async init() {
+      // Redirect non-admins
+      const groups = JSON.parse(localStorage.getItem('anc_groups') || '[]');
+      if (!groups.includes('admins')) { window.location.href = '/ui/secrets'; return; }
+      await this.loadUsers();
+      this.knownGroups = [...new Set(this.users.flatMap(u => u.groups))];
+    },
+
+    async loadUsers() {
+      this.pageError = '';
+      try {
+        const res = await fetch('/admin/users', { headers: this.authHeaders() });
+        if (res.status === 401) { window.location.href = '/ui/login'; return; }
+        if (res.status === 403) { this.pageError = 'Admin access required'; return; }
+        if (!res.ok) { this.pageError = 'Failed to load users'; return; }
+        this.users = await res.json();
+      } catch { this.pageError = 'Network error'; }
+    },
+
+    openEdit(u) {
+      this.eForm = { username: u.username, groups: [...u.groups], newGroup: '' };
+      this.modalError = '';
+      this.modal = 'edit';
+    },
+
+    addGroup() {
+      const g = this.eForm.newGroup.trim();
+      if (g && !this.eForm.groups.includes(g)) {
+        this.eForm.groups.push(g);
+        if (!this.knownGroups.includes(g)) this.knownGroups.push(g);
+      }
+      this.eForm.newGroup = '';
+    },
+
+    removeGroup(g) {
+      this.eForm.groups = this.eForm.groups.filter(x => x !== g);
+    },
+
+    async saveEdit() {
+      this.saving = true;
+      this.modalError = '';
+      try {
+        const res = await fetch(`/admin/users/${this.eForm.username}`, {
+          method: 'PATCH',
+          headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groups: this.eForm.groups }),
+        });
+        const data = await res.json();
+        if (!res.ok) { this.modalError = data.detail || 'Error updating user'; return; }
+        this.modal = null;
+        this.pageMsg = `User '${this.eForm.username}' updated.`;
+        setTimeout(() => this.pageMsg = '', 4000);
+        await this.loadUsers();
+        this.knownGroups = [...new Set(this.users.flatMap(u => u.groups))];
+      } catch { this.modalError = 'Network error'; }
+      finally { this.saving = false; }
+    },
+
+    openCreate() {
+      this.form = { username: '', password: '', groups: '' };
+      this.modalError = '';
+      this.modal = 'create';
+    },
+
+    async createUser() {
+      this.saving = true;
+      this.modalError = '';
+      try {
+        const body = {
+          username: this.form.username,
+          password: this.form.password,
+          groups: this.form.groups ? this.form.groups.split(',').map(s => s.trim()).filter(Boolean) : [],
+        };
+        const res = await fetch('/admin/users', {
+          method: 'POST',
+          headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) { this.modalError = data.detail || 'Error creating user'; return; }
+        this.modal = null;
+        this.pageMsg = `User '${this.form.username}' created successfully.`;
+        setTimeout(() => this.pageMsg = '', 4000);
+        await this.loadUsers();
+      } catch { this.modalError = 'Network error'; }
+      finally { this.saving = false; }
+    },
+
+    confirmDelete(username) {
+      this.deleteTarget = username;
+      this.modal = 'delete';
+    },
+
+    async deleteUser() {
+      try {
+        const res = await fetch(`/admin/users/${this.deleteTarget}`, {
+          method: 'DELETE',
+          headers: this.authHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok) { this.pageError = data.detail || 'Delete failed'; }
+        else {
+          this.pageMsg = `User '${this.deleteTarget}' deleted.`;
+          setTimeout(() => this.pageMsg = '', 4000);
+        }
+        this.modal = null;
+        await this.loadUsers();
+      } catch { this.pageError = 'Network error'; }
+    },
+
+    authHeaders() {
+      return { Authorization: `Bearer ${localStorage.getItem('anc_token') || ''}` };
+    },
+
+    fmt(ts) {
+      if (!ts) return '';
+      try { return new Date(ts).toLocaleString(); } catch { return ts; }
+    },
+  };
+}
+</script>
+{% endblock %}

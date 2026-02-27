@@ -1,29 +1,18 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from pymongo.collection import Collection
-from core.ancdb import ancDB
+from db.client import get_collection
 
 router = APIRouter()
-db = ancDB()
 
-@router.get("/dashboard", response_class=HTMLResponse)
+
+@router.get("/dashboard", response_class=HTMLResponse, tags=["dashboard"])
 def dashboard(request: Request):
-    collection: Collection = db.get_collection("anchors")
-
+    collection = get_collection("anchors")
     projection = {
-        "_id": 0,
-        "name": 1,
-        "type": 1,
-        "env": 1,
-        "project": 1,
-        "note": 1,
-        "path": 1,
-        "endpoint": 1,
-        "last_updated": 1,
-        "groups": 1,
-        "external": 1
+        "_id": 0, "name": 1, "type": 1, "env": 1, "project": 1,
+        "note": 1, "path": 1, "endpoint": 1, "last_updated": 1,
+        "groups": 1, "external": 1,
     }
-
     anchors = list(collection.find({}, projection))
 
     rows = []
@@ -38,9 +27,9 @@ def dashboard(request: Request):
         path_or_url = anchor.get("path") or anchor.get("endpoint", {}).get("base_url", "")
         external = "✅" if anchor.get("external") else ""
 
-        row = f"""
+        rows.append(f"""
             <tr>
-                <td><a href="/anchors/{name}/raw" target="_blank">{name}</a></td>
+                <td><a href="/anchors/{name}" target="_blank">{name}</a></td>
                 <td>{type_}</td>
                 <td>{env}</td>
                 <td>{project}</td>
@@ -50,8 +39,7 @@ def dashboard(request: Request):
                 <td>{path_or_url}</td>
                 <td>{updated}</td>
             </tr>
-        """
-        rows.append(row)
+        """)
 
     html = f"""
     <html>
@@ -71,23 +59,14 @@ def dashboard(request: Request):
         <table>
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Env</th>
-                    <th>Project</th>
-                    <th>Note</th>
-                    <th>Groups</th>
-                    <th>External</th>
-                    <th>Path / URL</th>
-                    <th>Last Updated</th>
+                    <th>Name</th><th>Type</th><th>Env</th><th>Project</th>
+                    <th>Note</th><th>Groups</th><th>External</th>
+                    <th>Path / URL</th><th>Last Updated</th>
                 </tr>
             </thead>
-            <tbody>
-                {''.join(rows)}
-            </tbody>
+            <tbody>{''.join(rows)}</tbody>
         </table>
     </body>
     </html>
     """
-
     return html

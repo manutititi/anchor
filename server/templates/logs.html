@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+
+{% block title %}Logs — Anchor Vault{% endblock %}
+{% block nav_logs %}bg-gray-700 text-white{% endblock %}
+
+{% block content %}
+<div x-data="logsPage()" x-init="init()">
+
+  <!-- Tabs -->
+  <div class="flex gap-1 mb-6 border-b border-gray-200">
+    <button @click="tab='logs'"
+            :class="tab==='logs'
+              ? 'border-b-2 border-blue-600 text-blue-600 font-medium'
+              : 'text-gray-500 hover:text-gray-700'"
+            class="px-4 py-2 text-sm transition-colors">
+      📋 Audit Log
+      <span class="ml-1 text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5"
+            x-text="total"></span>
+    </button>
+    <button @click="tab='secrets'; loadAllSecrets()"
+            :class="tab==='secrets'
+              ? 'border-b-2 border-blue-600 text-blue-600 font-medium'
+              : 'text-gray-500 hover:text-gray-700'"
+            class="px-4 py-2 text-sm transition-colors">
+      🔑 All Secrets
+      <span class="ml-1 text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5"
+            x-text="allSecrets.length"></span>
+    </button>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       TAB: AUDIT LOG
+       ═══════════════════════════════════════════════════════ -->
+  <div x-show="tab==='logs'">
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100 px-4 py-3 mb-4
+                flex flex-wrap gap-3 items-end">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">User</label>
+        <input x-model="f.user" @input.debounce.400ms="reload()"
+               placeholder="any" class="filter-input w-36" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Action</label>
+        <select x-model="f.action" @change="reload()" class="filter-input w-32">
+          <option value="">All</option>
+          <option value="create">create</option>
+          <option value="get">get</option>
+          <option value="update">update</option>
+          <option value="delete">delete</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Resource</label>
+        <select x-model="f.resource" @change="reload()" class="filter-input w-32">
+          <option value="">All</option>
+          <option value="secret">secret</option>
+          <option value="anchor">anchor</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Status</label>
+        <select x-model="f.success" @change="reload()" class="filter-input w-28">
+          <option value="">All</option>
+          <option value="true">Success</option>
+          <option value="false">Failed</option>
+        </select>
+      </div>
+      <button @click="resetFilters()"
+              class="text-xs text-gray-400 hover:text-gray-600 underline self-end pb-1">
+        Reset
+      </button>
+      <div class="ml-auto self-end text-xs text-gray-400" x-show="total">
+        <span x-text="logs.length"></span> / <span x-text="total"></span> shown
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="py-12 text-center text-gray-400 text-sm">
+      <svg class="animate-spin h-6 w-6 mx-auto mb-2 text-blue-500" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+      </svg>
+      Loading logs…
+    </div>
+
+    <!-- Error -->
+    <div x-show="pageError && !loading"
+         class="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"
+         x-text="pageError"></div>
+
+    <!-- Log table -->
+    <div x-show="!loading" class="bg-white rounded-lg shadow overflow-hidden">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="px-3 py-3 text-left font-medium text-gray-600 w-36">Time</th>
+            <th class="px-3 py-3 text-left font-medium text-gray-600 w-28">User</th>
+            <th class="px-3 py-3 text-left font-medium text-gray-600 w-24">Action</th>
+            <th class="px-3 py-3 text-left font-medium text-gray-600">Resource</th>
+            <th class="px-3 py-3 text-center font-medium text-gray-600 w-20">Status</th>
+            <th class="px-3 py-3 w-8"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(entry, idx) in logs" :key="idx">
+            <tr class="border-b border-gray-100 last:border-0">
+              <!-- Main row — click anywhere to expand -->
+              <td colspan="6" class="p-0">
+                <div>
+                  <!-- Summary -->
+                  <button @click="toggle(idx)"
+                          class="w-full grid grid-cols-[9rem_7rem_6rem_1fr_5rem_2rem]
+                                 items-center px-3 py-2.5 text-left hover:bg-gray-50
+                                 focus:outline-none transition-colors">
+                    <!-- Time -->
+                    <span class="text-xs text-gray-400 font-mono"
+                          :title="entry.timestamp"
+                          x-text="relTime(entry.timestamp)"></span>
+                    <!-- User -->
+                    <span class="text-sm text-gray-700 truncate" x-text="entry.user || '—'"></span>
+                    <!-- Action badge -->
+                    <span class="text-xs font-medium px-2 py-0.5 rounded w-fit"
+                          :class="actionClass(entry.action)"
+                          x-text="entry.action"></span>
+                    <!-- Resource -->
+                    <span class="text-xs font-mono text-gray-600 truncate">
+                      <span class="text-gray-400" x-text="entry.resource + '  '"></span>
+                      <span class="text-blue-700" x-text="entry.resource_id"></span>
+                    </span>
+                    <!-- Status -->
+                    <span class="text-center text-lg"
+                          :title="entry.success ? 'success ('+entry.status_code+')' : 'failed ('+entry.status_code+')'"
+                          x-text="entry.success ? '✓' : '✗'"
+                          :class="entry.success ? 'text-green-500' : 'text-red-500'"></span>
+                    <!-- Chevron -->
+                    <span class="text-gray-300 text-xs"
+                          x-text="expanded===idx ? '▲' : '▼'"></span>
+                  </button>
+
+                  <!-- Expanded JSON -->
+                  <div x-show="expanded===idx" class="border-t border-gray-100 bg-gray-950">
+                    <div class="flex justify-between items-center px-4 pt-3 pb-1">
+                      <span class="text-xs text-gray-500 font-medium uppercase tracking-wide">
+                        Full entry
+                      </span>
+                      <button @click="copyJson(entry)"
+                              class="text-xs text-blue-400 hover:text-blue-300">
+                        📋 Copy JSON
+                      </button>
+                    </div>
+                    <pre class="px-4 pb-4 text-xs font-mono overflow-x-auto leading-relaxed text-gray-300"
+                         x-html="highlight(entry)"></pre>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </template>
+
+          <tr x-show="!loading && logs.length===0">
+            <td colspan="6" class="px-4 py-10 text-center text-gray-400">
+              No log entries found for the current filters.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Load more -->
+      <div x-show="logs.length < total" class="border-t border-gray-100 px-4 py-3 text-center">
+        <button @click="loadMore()" :disabled="loadingMore"
+                class="text-sm text-blue-600 hover:underline disabled:opacity-50">
+          <span x-show="!loadingMore">Load more (50)</span>
+          <span x-show="loadingMore">Loading…</span>
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /tab logs -->
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       TAB: ALL SECRETS (admin overview, no values)
+       ═══════════════════════════════════════════════════════ -->
+  <div x-show="tab==='secrets'">
+
+    <!-- Search -->
+    <div class="mb-4 flex gap-3 items-center">
+      <input x-model="secretSearch" type="text" placeholder="Filter by path or owner…"
+             class="filter-input w-72" />
+      <span class="text-xs text-gray-400 ml-auto">
+        <span x-text="filteredSecrets.length"></span> secrets
+      </span>
+    </div>
+
+    <div x-show="secretsLoading" class="py-12 text-center text-gray-400 text-sm">Loading…</div>
+
+    <div x-show="!secretsLoading" class="bg-white rounded-lg shadow overflow-hidden">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="px-4 py-3 text-left font-medium text-gray-600">Path</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-600">Owner</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-600">Groups</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-600">Users</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-600 w-20">Edit</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-600 w-24">Ver / Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="s in filteredSecrets" :key="s.id">
+            <tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+              <td class="px-4 py-3 font-mono text-blue-700 text-xs break-all" x-text="s.id"></td>
+              <td class="px-4 py-3 text-gray-700 text-xs" x-text="s.created_by"></td>
+              <td class="px-4 py-3">
+                <span x-show="!(s.groups||[]).length" class="text-gray-300 text-xs">—</span>
+                <template x-for="g in (s.groups||[])" :key="g">
+                  <span class="inline-block bg-purple-100 text-purple-800 text-xs rounded
+                               px-2 py-0.5 mr-1 mb-0.5" x-text="g"></span>
+                </template>
+              </td>
+              <td class="px-4 py-3">
+                <span x-show="!(s.users||[]).length" class="text-gray-300 text-xs">—</span>
+                <template x-for="u in (s.users||[])" :key="u">
+                  <span class="inline-block bg-blue-100 text-blue-800 text-xs rounded
+                               px-2 py-0.5 mr-1 mb-0.5" x-text="u"></span>
+                </template>
+              </td>
+              <td class="px-4 py-3 text-xs"
+                  :class="s.allow_group_edit ? 'text-green-700' : 'text-gray-300'"
+                  x-text="s.allow_group_edit ? 'group' : 'owner'"></td>
+              <td class="px-4 py-3 text-xs text-gray-400">
+                <div x-text="'v'+s.version"></div>
+                <div x-text="fmtShort(s.last_updated)"></div>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="!secretsLoading && filteredSecrets.length===0">
+            <td colspan="6" class="px-4 py-10 text-center text-gray-400">No secrets found.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /tab secrets -->
+
+</div>
+
+<style>
+  .filter-input {
+    border: 1px solid #d1d5db; border-radius: .375rem; padding: .35rem .6rem;
+    font-size: .8rem; outline: none;
+  }
+  .filter-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #bfdbfe; }
+
+  /* JSON syntax colours (dark background) */
+  pre .jk { color: #93c5fd; }   /* key */
+  pre .js { color: #86efac; }   /* string value */
+  pre .jn { color: #fb923c; }   /* number */
+  pre .jb { color: #fde047; }   /* boolean */
+  pre .jz { color: #6b7280; }   /* null */
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function logsPage() {
+  return {
+    tab: 'logs',
+
+    // ── Logs state ────────────────────────────────────────
+    logs: [],
+    total: 0,
+    loading: false,
+    loadingMore: false,
+    pageError: '',
+    expanded: null,
+    f: { user: '', action: '', resource: '', success: '' },
+
+    // ── Secrets state ─────────────────────────────────────
+    allSecrets: [],
+    secretSearch: '',
+    secretsLoading: false,
+    secretsLoaded: false,
+
+    get filteredSecrets() {
+      const q = this.secretSearch.toLowerCase();
+      if (!q) return this.allSecrets;
+      return this.allSecrets.filter(s =>
+        s.id.toLowerCase().includes(q) ||
+        (s.created_by || '').toLowerCase().includes(q)
+      );
+    },
+
+    // ── Init ──────────────────────────────────────────────
+    async init() {
+      const groups = JSON.parse(localStorage.getItem('anc_groups') || '[]');
+      if (!groups.includes('admins')) { location.href = '/ui/secrets'; return; }
+      await this.reload();
+    },
+
+    // ── Log loading ───────────────────────────────────────
+    buildParams(skip = 0) {
+      const p = new URLSearchParams({ limit: 50, skip });
+      if (this.f.user)     p.set('user',     this.f.user);
+      if (this.f.action)   p.set('action',   this.f.action);
+      if (this.f.resource) p.set('resource', this.f.resource);
+      if (this.f.success)  p.set('success',  this.f.success);
+      return p.toString();
+    },
+
+    async reload() {
+      this.loading = true;
+      this.expanded = null;
+      this.pageError = '';
+      try {
+        const r = await fetch('/admin/logs?' + this.buildParams(0), { headers: this.auth() });
+        if (r.status === 401) { location.href = '/ui/login'; return; }
+        if (r.status === 403) { location.href = '/ui/secrets'; return; }
+        if (!r.ok) { this.pageError = 'Failed to load logs'; return; }
+        const data = await r.json();
+        this.logs  = data.logs;
+        this.total = data.total;
+      } catch { this.pageError = 'Network error'; }
+      finally { this.loading = false; }
+    },
+
+    async loadMore() {
+      this.loadingMore = true;
+      try {
+        const r = await fetch('/admin/logs?' + this.buildParams(this.logs.length),
+                              { headers: this.auth() });
+        if (!r.ok) return;
+        const data = await r.json();
+        this.logs.push(...data.logs);
+      } catch {}
+      finally { this.loadingMore = false; }
+    },
+
+    resetFilters() {
+      this.f = { user:'', action:'', resource:'', success:'' };
+      this.reload();
+    },
+
+    toggle(idx) {
+      this.expanded = this.expanded === idx ? null : idx;
+    },
+
+    // ── Secrets overview ──────────────────────────────────
+    async loadAllSecrets() {
+      if (this.secretsLoaded) return;
+      this.secretsLoading = true;
+      try {
+        const r = await fetch('/admin/secrets', { headers: this.auth() });
+        if (!r.ok) return;
+        this.allSecrets = await r.json();
+        this.secretsLoaded = true;
+      } catch {}
+      finally { this.secretsLoading = false; }
+    },
+
+    // ── Helpers ───────────────────────────────────────────
+    auth() {
+      return { Authorization: 'Bearer ' + (localStorage.getItem('anc_token') || '') };
+    },
+
+    actionClass(action) {
+      return {
+        create: 'bg-green-100 text-green-800',
+        get:    'bg-gray-100  text-gray-600',
+        update: 'bg-yellow-100 text-yellow-800',
+        delete: 'bg-red-100  text-red-700',
+      }[action] || 'bg-gray-100 text-gray-600';
+    },
+
+    relTime(ts) {
+      if (!ts) return '—';
+      try {
+        const diff = Date.now() - new Date(ts).getTime();
+        const s = Math.floor(diff / 1000);
+        if (s <  60) return s + 's ago';
+        if (s < 3600) return Math.floor(s/60) + 'm ago';
+        if (s < 86400) return Math.floor(s/3600) + 'h ago';
+        return Math.floor(s/86400) + 'd ago';
+      } catch { return ts; }
+    },
+
+    fmtShort(ts) {
+      if (!ts) return '';
+      try {
+        const d = new Date(ts);
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      } catch { return ts; }
+    },
+
+    highlight(obj) {
+      // Simple JSON syntax highlighter for dark background
+      const json = JSON.stringify(obj, null, 2);
+      return json
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(
+          /("(?:\\.|[^"\\])*")\s*:/g,
+          '<span class="jk">$1</span>:'
+        )
+        .replace(
+          /:\s*("(?:\\.|[^"\\])*")/g,
+          ': <span class="js">$1</span>'
+        )
+        .replace(
+          /:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+          ': <span class="jn">$1</span>'
+        )
+        .replace(
+          /:\s*(true|false)/g,
+          ': <span class="jb">$1</span>'
+        )
+        .replace(
+          /:\s*(null)/g,
+          ': <span class="jz">$1</span>'
+        );
+    },
+
+    copyJson(entry) {
+      navigator.clipboard.writeText(JSON.stringify(entry, null, 2)).catch(() => {});
+    },
+  };
+}
+</script>
+{% endblock %}
