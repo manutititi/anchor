@@ -26,12 +26,18 @@ services:
 
     ports:
       - "${SERVERPORT:-51820}:51820/udp"
-      - "${WG_SIDECAR_PORT:-8000}:8000"
+      # Port 8000 (sidecar) is NOT published to the host.
+      # anc-server reaches it at http://wireguard:8000 through the internal anc-wg network.
 
     volumes:
       - ./config:/config
       - ./peers:/etc/wireguard/peers
       - /lib/modules:/lib/modules:ro
+
+    # anc-wg: internal Docker network shared only with anc-server.
+    # No internet routing — purely container-to-container.
+    networks:
+      - anc-wg
 
     restart: unless-stopped
 
@@ -54,9 +60,9 @@ services:
   wg-sidecar:
     build: ./sidecar
     container_name: wg-sidecar
-    # Shares wireguard's network namespace: has direct access to wg0 for zero-downtime peer changes.
-    # Port 8000 is published via the wireguard container's ports section above.
-    # anc-server reaches it from its own stack via http://host.docker.internal:8000.
+    # Shares wireguard's network namespace: direct access to wg0 for zero-downtime peer changes.
+    # Listens on 0.0.0.0:8000 inside wireguard's namespace, so anc-server reaches it at
+    # http://wireguard:8000 through the anc-wg internal network (no host port exposure).
     network_mode: "service:wireguard"
 
     cap_add:
@@ -80,3 +86,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
+networks:
+  anc-wg:
+    external: true

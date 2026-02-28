@@ -27,12 +27,9 @@ services:
       # - LDAP_BASE_DN=dc=anchor,dc=local
       # - LDAP_ADMIN_DN=cn=admin,dc=anchor,dc=local
       # - LDAP_ADMIN_PASSWORD=changeme
-    # Allows reaching the host from inside the container.
-    # Used to call the WireGuard sidecar (separate stack) at http://host.docker.internal:8000.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
-      - anc
+      - anc     # reaches mongodb
+      - anc-wg  # reaches wireguard sidecar at http://wireguard:8000 (internal, no internet)
     restart: unless-stopped
     depends_on:
       mongodb:
@@ -71,4 +68,6 @@ volumes:
 
 networks:
   anc:
+    external: true
+  anc-wg:
     external: true
