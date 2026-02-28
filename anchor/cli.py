@@ -11,6 +11,7 @@ from __future__ import annotations
 import typer
 
 from anchor.commands import login, ls, path, pull, push, set
+from anchor.commands.go import anchor_type, go
 from anchor.commands.secret import app as secret_app
 
 app = typer.Typer(
@@ -30,6 +31,11 @@ app.command("pull")(pull.pull)
 app.command("push")(push.push)
 app.command("ls")(ls.ls)
 app.command("path")(path.path)
+app.command("go")(go)
+
+# Internal — used by the shell wrapper (anchor/shell/anc.sh) to route
+# bare `anc <name>` calls without side effects.
+app.command("_type", hidden=True)(anchor_type)
 
 # ------------------------------------------------------------------
 # Subgroups

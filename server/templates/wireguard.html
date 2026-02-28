@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+{% block title %}VPN — Anchor{% endblock %}
+{% block nav_vpn %}bg-gray-700 text-white font-medium{% endblock %}
+
+{% block content %}
+<div x-data="vpnPage()" x-init="init()">
+
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-gray-800">🔒 WireGuard VPN</h1>
+    <span class="text-sm text-gray-500">VPN lease management</span>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ADMIN VIEW                                                    -->
+  <!-- ============================================================ -->
+  <template x-if="isAdmin">
+    <div class="space-y-6">
+
+      <!-- Sidecar Config card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-2xl">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">⚙️</span>
+            <div>
+              <h2 class="text-lg font-semibold text-gray-800">Sidecar Configuration</h2>
+              <p class="text-xs text-gray-500">WireGuard sidecar URL, API key, subnet and lease settings</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <template x-if="wgStatus !== null">
+              <span :class="wgStatus ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
+                    class="text-xs font-medium px-2.5 py-1 rounded-full"
+                    x-text="wgStatus ? '● Enabled' : '○ Disabled'"></span>
+            </template>
+            <button @click="cfgOpen = !cfgOpen"
+                    class="text-gray-400 hover:text-gray-600 text-xl leading-none select-none"
+                    x-text="cfgOpen ? '▲' : '▼'"></button>
+          </div>
+        </div>
+
+        <div x-show="cfgOpen" x-cloak class="px-6 py-5 space-y-5">
+
+          <!-- Row 1: sidecar URL + api_key -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Sidecar URL</label>
+              <input x-model="cfg.sidecar_url" type="text"
+                     placeholder="http://wg-sidecar:8000"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">API Key</label>
+              <input x-model="cfg.api_key" type="password"
+                     placeholder="leave blank to keep current"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+              <p class="text-xs text-gray-400 mt-1">Encrypted with AES-256-GCM at rest.</p>
+            </div>
+          </div>
+
+          <!-- Row 2: subnet + server_endpoint -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">VPN Subnet (CIDR)</label>
+              <input x-model="cfg.subnet" type="text"
+                     placeholder="10.13.13.0/24"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+              <p class="text-xs text-gray-400 mt-1">.0 (network), .1 (server) and .255 (broadcast) are reserved.</p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Server Endpoint</label>
+              <input x-model="cfg.server_endpoint" type="text"
+                     placeholder="1.2.3.4:51820"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+              <p class="text-xs text-gray-400 mt-1">Sent to clients in their wg config.</p>
+            </div>
+          </div>
+
+          <!-- Row 3: lease_hours + enabled -->
+          <div class="grid grid-cols-3 gap-4 items-end">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Lease Duration (hours)</label>
+              <input x-model.number="cfg.lease_hours" type="number" min="1" max="168"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            </div>
+            <div class="flex flex-col justify-end pb-2">
+              <label class="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" x-model="cfg.enabled" class="rounded" />
+                <span class="text-sm text-gray-700">Enabled</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex items-center gap-3 pt-1">
+            <button @click="saveCfg()"
+                    :disabled="saving"
+                    class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              <span x-text="saving ? 'Saving…' : 'Save'"></span>
+            </button>
+            <button @click="testConn()"
+                    :disabled="testing"
+                    class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50">
+              <span x-text="testing ? 'Testing…' : 'Test connection'"></span>
+            </button>
+            <button @click="removeCfg()"
+                    class="px-4 py-2 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50">
+              Remove config
+            </button>
+          </div>
+
+          <!-- Save result -->
+          <template x-if="saveMsg">
+            <div :class="saveOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+                 class="border rounded-lg px-4 py-2 text-sm" x-text="saveMsg"></div>
+          </template>
+
+          <!-- Test result -->
+          <template x-if="testResult">
+            <div :class="testResult.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'"
+                 class="border rounded-lg px-4 py-3 text-sm">
+              <div class="flex items-center gap-2 font-medium"
+                   :class="testResult.ok ? 'text-green-700' : 'text-red-700'">
+                <span x-text="testResult.ok ? '✔ Connected' : '✘ Failed'"></span>
+                <span x-show="testResult.latency_ms != null" class="font-normal text-xs"
+                      x-text="'(' + testResult.latency_ms + ' ms)'"></span>
+              </div>
+              <template x-if="testResult.error">
+                <p class="mt-1 text-red-600 font-mono text-xs" x-text="testResult.error"></p>
+              </template>
+              <template x-if="testResult.ok && Object.keys(testResult.details).length">
+                <dl class="mt-2 space-y-0.5 text-gray-600">
+                  <template x-for="[k, v] in Object.entries(testResult.details)" :key="k">
+                    <div class="flex gap-2 text-xs">
+                      <dt class="font-medium w-28 shrink-0" x-text="k"></dt>
+                      <dd class="text-gray-500 font-mono" x-text="v"></dd>
+                    </div>
+                  </template>
+                </dl>
+              </template>
+            </div>
+          </template>
+
+          <!-- Metadata -->
+          <template x-if="cfgMeta.updated_at">
+            <p class="text-xs text-gray-400">
+              Last saved <span x-text="cfgMeta.updated_at"></span>
+              <template x-if="cfgMeta.created_by">
+                <span> by <span x-text="cfgMeta.created_by" class="font-medium"></span></span>
+              </template>
+            </p>
+          </template>
+
+        </div>
+      </div>
+
+      <!-- Pool status card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-2xl">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🌐</span>
+            <h2 class="text-lg font-semibold text-gray-800">IP Pool</h2>
+          </div>
+          <button @click="loadPool()"
+                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
+        </div>
+        <div class="px-6 py-4 flex items-center gap-6">
+          <template x-if="pool">
+            <div class="flex gap-4">
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+                <span class="text-base">●</span>
+                <span x-text="pool.free + ' free'"></span>
+              </span>
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                <span class="text-base">●</span>
+                <span x-text="pool.leased + ' leased'"></span>
+              </span>
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-sm">
+                <span x-text="pool.total + ' total'"></span>
+              </span>
+            </div>
+          </template>
+          <template x-if="!pool">
+            <span class="text-sm text-gray-400">Pool not initialised. Save a config with a valid subnet first.</span>
+          </template>
+        </div>
+      </div>
+
+      <!-- Active leases card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">📋</span>
+            <h2 class="text-lg font-semibold text-gray-800">Active Leases</h2>
+          </div>
+          <button @click="loadLeases()"
+                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+              <tr>
+                <th class="px-5 py-3 text-left">User</th>
+                <th class="px-5 py-3 text-left">Assigned IP</th>
+                <th class="px-5 py-3 text-left">Peer name</th>
+                <th class="px-5 py-3 text-left">Expires at</th>
+                <th class="px-5 py-3 text-left">Vault secret</th>
+                <th class="px-5 py-3 text-left"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <template x-if="leases.length === 0">
+                <tr>
+                  <td colspan="6" class="px-5 py-6 text-center text-gray-400 text-sm">No active leases</td>
+                </tr>
+              </template>
+              <template x-for="l in leases" :key="l.uid">
+                <tr class="hover:bg-gray-50">
+                  <td class="px-5 py-3 font-medium text-gray-800" x-text="l.uid"></td>
+                  <td class="px-5 py-3 font-mono text-gray-700" x-text="l.assigned_ip"></td>
+                  <td class="px-5 py-3 text-gray-600" x-text="l.peer_name"></td>
+                  <td class="px-5 py-3 text-gray-500 text-xs" x-text="l.expires_at"></td>
+                  <td class="px-5 py-3">
+                    <span class="font-mono text-xs text-purple-700 bg-purple-50 px-2 py-0.5 rounded"
+                          x-text="l.vault_path"></span>
+                  </td>
+                  <td class="px-5 py-3 text-right">
+                    <button @click="revokeAdmin(l.uid)"
+                            class="text-xs text-red-600 hover:text-red-800 font-medium">
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </template>
+
+  <!-- ============================================================ -->
+  <!-- USER VIEW                                                     -->
+  <!-- ============================================================ -->
+  <template x-if="!isAdmin">
+    <div class="max-w-lg space-y-4">
+
+      <!-- Active lease card -->
+      <template x-if="userLease">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-3">
+          <div class="flex items-center gap-2 text-green-700 font-semibold">
+            <span>✔</span> Active VPN Lease
+          </div>
+          <dl class="text-sm space-y-1.5">
+            <div class="flex gap-3">
+              <dt class="w-28 text-gray-500 shrink-0">Assigned IP</dt>
+              <dd class="font-mono text-gray-800" x-text="userLease.assigned_ip"></dd>
+            </div>
+            <div class="flex gap-3">
+              <dt class="w-28 text-gray-500 shrink-0">Peer name</dt>
+              <dd class="text-gray-700" x-text="userLease.peer_name"></dd>
+            </div>
+            <div class="flex gap-3">
+              <dt class="w-28 text-gray-500 shrink-0">Expires at</dt>
+              <dd class="text-gray-500 text-xs" x-text="userLease.expires_at"></dd>
+            </div>
+            <div class="flex gap-3">
+              <dt class="w-28 text-gray-500 shrink-0">Config secret</dt>
+              <dd>
+                <span class="font-mono text-xs text-purple-700 bg-purple-50 px-2 py-0.5 rounded"
+                      x-text="userLease.vault_path"></span>
+              </dd>
+            </div>
+          </dl>
+          <div class="pt-2">
+            <button @click="revokeOwn()"
+                    class="px-4 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50">
+              Revoke lease
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- No lease -->
+      <template x-if="!userLease && !leaseLoading">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center space-y-3">
+          <p class="text-gray-500 text-sm">You have no active VPN lease.</p>
+          <p class="text-xs text-gray-400">
+            VPN access requires a WireGuard public key.<br>
+            Use <code class="bg-gray-100 px-1 rounded">anc vpn request --pubkey &lt;key&gt;</code>
+            from the CLI (Phase 3) or <code class="bg-gray-100 px-1 rounded">POST /vpn/request</code> from the API.
+          </p>
+        </div>
+      </template>
+
+      <!-- Action result -->
+      <template x-if="actionMsg">
+        <div :class="actionOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+             class="border rounded-lg px-4 py-2 text-sm" x-text="actionMsg"></div>
+      </template>
+
+    </div>
+  </template>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function vpnPage() {
+  return {
+    isAdmin: false,
+
+    // Admin state
+    cfgOpen: true,
+    wgStatus: null,
+    cfg: {
+      sidecar_url: '',
+      api_key: '',
+      subnet: '10.13.13.0/24',
+      server_endpoint: '',
+      lease_hours: 8,
+      enabled: true,
+    },
+    cfgMeta: {},
+    saving: false,
+    saveMsg: null,
+    saveOk: false,
+    testing: false,
+    testResult: null,
+    pool: null,
+    leases: [],
+
+    // User state
+    userLease: null,
+    leaseLoading: true,
+    actionMsg: null,
+    actionOk: false,
+
+    token() { return localStorage.getItem('anc_token') || ''; },
+
+    async init() {
+      try {
+        this.isAdmin = JSON.parse(localStorage.getItem('anc_groups') || '[]').includes('admins');
+      } catch { this.isAdmin = false; }
+
+      if (this.isAdmin) {
+        await Promise.all([this.loadCfg(), this.loadPool(), this.loadLeases()]);
+      } else {
+        await this.loadUserLease();
+      }
+    },
+
+    // ---- Admin: config ----
+    async loadCfg() {
+      const res = await fetch('/integrations/wireguard', {
+        headers: { Authorization: 'Bearer ' + this.token() },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      this.wgStatus = data.enabled;
+      this.cfgMeta = { created_at: data.created_at, updated_at: data.updated_at, created_by: data.created_by };
+      if (data.config) {
+        const loaded = { ...data.config };
+        if (loaded.api_key === '***') loaded.api_key = '';
+        this.cfg = { ...this.cfg, ...loaded };
+      }
+    },
+
+    async saveCfg() {
+      this.saving = true;
+      this.saveMsg = null;
+      this.testResult = null;
+      try {
+        const payload = { ...this.cfg };
+        if (!payload.api_key) delete payload.api_key;
+        const res = await fetch('/integrations/wireguard', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.token() },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.saveOk = true;
+          this.saveMsg = data.detail || 'Saved.';
+          await Promise.all([this.loadCfg(), this.loadPool()]);
+        } else {
+          this.saveOk = false;
+          this.saveMsg = data.detail || 'Save failed.';
+        }
+      } catch (e) {
+        this.saveOk = false;
+        this.saveMsg = 'Network error: ' + e.message;
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async testConn() {
+      this.testing = true;
+      this.testResult = null;
+      this.saveMsg = null;
+      try {
+        const res = await fetch('/integrations/wireguard/test', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        this.testResult = await res.json();
+      } catch (e) {
+        this.testResult = { ok: false, error: 'Network error: ' + e.message };
+      } finally {
+        this.testing = false;
+      }
+    },
+
+    async removeCfg() {
+      if (!confirm('Remove WireGuard configuration? This will not revoke existing leases.')) return;
+      const res = await fetch('/integrations/wireguard', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + this.token() },
+      });
+      if (res.ok) {
+        this.saveOk = true;
+        this.saveMsg = 'Configuration removed.';
+        this.cfgMeta = {};
+        this.wgStatus = null;
+      }
+    },
+
+    // ---- Admin: pool ----
+    async loadPool() {
+      try {
+        const res = await fetch('/vpn/admin/pool', {
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        if (res.ok) this.pool = await res.json();
+      } catch { /* ignore */ }
+    },
+
+    // ---- Admin: leases ----
+    async loadLeases() {
+      try {
+        const res = await fetch('/vpn/admin/leases', {
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        if (res.ok) this.leases = await res.json();
+      } catch { /* ignore */ }
+    },
+
+    async revokeAdmin(uid) {
+      if (!confirm(`Revoke VPN lease for '${uid}'?`)) return;
+      const res = await fetch('/vpn/admin/leases/' + encodeURIComponent(uid), {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + this.token() },
+      });
+      await this.loadLeases();
+      await this.loadPool();
+    },
+
+    // ---- User: own lease ----
+    async loadUserLease() {
+      this.leaseLoading = true;
+      try {
+        const res = await fetch('/vpn/status', {
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        this.userLease = res.ok ? await res.json() : null;
+      } catch {
+        this.userLease = null;
+      } finally {
+        this.leaseLoading = false;
+      }
+    },
+
+    async revokeOwn() {
+      if (!confirm('Revoke your VPN lease? You will be disconnected.')) return;
+      try {
+        const res = await fetch('/vpn/lease', {
+          method: 'DELETE',
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.actionOk = true;
+          this.actionMsg = data.detail || 'Lease revoked.';
+          this.userLease = null;
+        } else {
+          this.actionOk = false;
+          this.actionMsg = data.detail || 'Revoke failed.';
+        }
+      } catch (e) {
+        this.actionOk = false;
+        this.actionMsg = 'Network error: ' + e.message;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

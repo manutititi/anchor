@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -12,6 +13,8 @@ from endpoints.admin import router as admin_router
 from endpoints.dashboard import router as dashboard_router
 from ui import router as ui_module
 from integrations.router import router as integrations_router
+from vpn.router import router as vpn_router
+from vpn.janitor import start_janitor
 
 
 templates = Jinja2Templates(directory="/app/templates")
@@ -21,6 +24,7 @@ ui_module.set_templates(templates)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_client()  # Verify MongoDB is reachable at startup
+    asyncio.create_task(start_janitor())
     yield
     close_client()
 
@@ -47,6 +51,7 @@ app.include_router(health_router)
 app.include_router(admin_router, prefix="/admin")
 app.include_router(dashboard_router)
 app.include_router(integrations_router, prefix="/integrations")
+app.include_router(vpn_router, prefix="/vpn")
 app.include_router(ui_module.router, prefix="/ui")
 
 @app.get("/", include_in_schema=False)

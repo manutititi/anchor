@@ -1,0 +1,78 @@
+services:
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    hostname: wireguard
+
+    cap_add:
+      - NET_ADMIN
+
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv6.conf.all.forwarding=1
+
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Madrid}
+      - SERVERURL=${SERVERURL:-auto}
+      - SERVERPORT=${SERVERPORT:-51820}
+      - INTERNAL_SUBNET=${INTERNAL_SUBNET:-10.13.13.0}
+      - PEERS=${PEERS:-peer1}
+      - PEERDNS=${PEERDNS:-auto}
+      - ALLOWEDIPS=${ALLOWEDIPS:-0.0.0.0/0,::/0}
+
+    ports:
+      - "${SERVERPORT:-51820}:51820/udp"
+      - "${WG_SIDECAR_PORT:-8000}:8000"
+
+    volumes:
+      - ./config:/config
+      - ./peers:/etc/wireguard/peers
+      - /lib/modules:/lib/modules:ro
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: [ "CMD", "wg", "show" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  wg-sidecar:
+    build: ./sidecar
+    container_name: wg-sidecar
+    network_mode: "service:wireguard"
+
+    cap_add:
+      - NET_ADMIN
+
+    depends_on:
+      wireguard:
+        condition: service_healthy
+
+    environment:
+      - WG_API_KEY=${WG_API_KEY:-}
+
+    volumes:
+      - ./config:/config
+
+    restart: unless-stopped
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

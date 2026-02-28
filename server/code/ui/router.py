@@ -45,3 +45,8 @@ def ui_logs(request: Request):
 @router.get("/integrations", response_class=HTMLResponse)
 def ui_integrations(request: Request):
     return templates.TemplateResponse("integrations.html", {"request": request})
+
+
+@router.get("/wireguard", response_class=HTMLResponse)
+def ui_wireguard(request: Request):
+    return templates.TemplateResponse("wireguard.html", {"request": request})

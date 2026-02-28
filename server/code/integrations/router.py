@@ -12,6 +12,7 @@ router = APIRouter()
 
 ENCRYPTED_FIELDS: dict[str, list[str]] = {
     "ldap": ["admin_password"],
+    "wireguard": ["api_key"],
 }
 
 
@@ -93,6 +94,21 @@ def upsert_integration(
             LDAPConfig(**merged)
         except Exception as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+
+    if integration_type == "wireguard":
+        from integrations.wireguard.models import WireGuardConfig
+        try:
+            WireGuardConfig(**merged)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        # Re-initialise the IP pool whenever the subnet changes
+        from vpn.ip_pool import init_pool
+        subnet = merged.get("subnet", "10.13.13.0/24")
+        try:
+            init_pool(subnet)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid subnet: {exc}")
 
     save_config(integration_type, merged, enc_fields, admin)
     return JSONResponse(status_code=200, content={"detail": f"Integration '{integration_type}' saved."})

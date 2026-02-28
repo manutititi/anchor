@@ -21,3 +21,10 @@ db.users.createIndex({ username: 1 }, { unique: true });
 
 db.ref.createIndex({ id: 1 }, { unique: true });
 db.anchors.createIndex({ name: 1 }, { unique: true });
+
+// VPN collections
+db.createCollection("vpn_ip_pool");
+db.createCollection("vpn_leases");
+
+db.vpn_leases.createIndex({ uid: 1 }, { unique: true });
+db.vpn_leases.createIndex({ expires_at: 1 });  // for janitor queries

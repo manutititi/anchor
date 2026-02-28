@@ -26,5 +26,7 @@ def all_providers() -> dict[str, IntegrationProvider]:
 # Built-in providers
 # ---------------------------------------------------------------------------
 from integrations.ldap.provider import LDAPProvider
+from integrations.wireguard.provider import WireGuardProvider
 
 register(LDAPProvider())
+register(WireGuardProvider())
