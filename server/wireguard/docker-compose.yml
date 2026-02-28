@@ -1,3 +1,14 @@
+# =============================================================
+# DEPRECATED — standalone WireGuard compose (development / testing only).
+#
+# For production use the merged compose one level up:
+#   cd .. && docker compose up
+#
+# That compose runs all four services (wireguard, wg-sidecar, anc-server,
+# mongodb) with anc-server sharing wireguard's network namespace so the UI
+# is accessible ONLY from VPN clients at http://10.13.13.1:17017.
+# =============================================================
+
 services:
   wireguard:
     image: lscr.io/linuxserver/wireguard:latest
