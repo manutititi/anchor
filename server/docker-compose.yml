@@ -13,146 +13,101 @@
 #   VAULT_MASTER_KEY: openssl rand -base64 32
 #   WG_API_KEY:       openssl rand -base64 32
 # =============================================================
-
 services:
 
-  # ── WireGuard VPN server ─────────────────────────────────────────────────
+  # ── WireGuard: El "escudo" de red ────────────────────────────────────────
   wireguard:
     image: lscr.io/linuxserver/wireguard:latest
     container_name: wireguard
-    hostname: wireguard
     cap_add:
       - NET_ADMIN
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv6.conf.all.disable_ipv6=0
-      - net.ipv6.conf.all.forwarding=1
     environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-Europe/Madrid}
-      - SERVERURL=${SERVERURL:-auto}
-      - SERVERPORT=${SERVERPORT:-51820}
-      - INTERNAL_SUBNET=${INTERNAL_SUBNET:-10.13.13.0}
-      - PEERS=${PEERS:-peer1}
-      - PEERDNS=${PEERDNS:-auto}
-      - ALLOWEDIPS=${ALLOWEDIPS:-0.0.0.0/0,::/0}
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Madrid
+      - SERVERURL=auto
+      - SERVERPORT=51820
+      - INTERNAL_SUBNET=10.13.13.0
+      - PEERS=peer1
     ports:
-      - "${SERVERPORT:-51820}:51820/udp"
-      # No other ports published. anc-server and wg-sidecar live inside
-      # this container's network namespace and are never exposed to the host.
+      - "51820:51820/udp"
+      # NOTA: No mapeamos el 17017 aquí. 
+      # Al estar en la misma red, los clientes de la VPN llegarán 
+      # directamente a la IP 10.13.13.1:17017 sin abrir puertos al mundo.
     volumes:
       - ./wireguard/config:/config
-      - ./wireguard/peers:/etc/wireguard/peers
       - /lib/modules:/lib/modules:ro
     networks:
       - backend
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wg", "show"]
-      interval: 30s
+      test: [ "CMD", "wg", "show" ]
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 15s
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ── WireGuard sidecar (peer management API) ──────────────────────────────
+  # ── Sidecar: Gestión de la VPN ──────────────────────────────────────────
   wg-sidecar:
     build: ./wireguard/sidecar
     container_name: wg-sidecar
-    # Shares wireguard's network namespace: direct access to wg0.
-    # anc-server reaches it at http://localhost:8000 (same namespace, same loopback).
-    network_mode: "service:wireguard"
     cap_add:
       - NET_ADMIN
+    network_mode: "service:wireguard" # Comparte red con WireGuard
     depends_on:
       wireguard:
         condition: service_healthy
-    environment:
-      - WG_API_KEY=${WG_API_KEY:-}
-    volumes:
-      - ./wireguard/config:/config
     restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ── Anchor server (API + UI) ─────────────────────────────────────────────
+  # ── Anchor Server: Tu App ───────────────────────────────────────────────
   anc-server:
     build: .
     container_name: anc-server
-    # Shares wireguard's network namespace.
-    # Listens on 0.0.0.0:17017 inside that namespace, which means:
-    #   - Reachable at http://10.13.13.1:17017 from VPN clients  ✓
-    #   - NOT reachable from the internet                         ✓
-    #   - Sidecar at http://localhost:8000 (same namespace)       ✓
-    #   - mongodb resolved via wireguard's DNS (backend network)  ✓
-    network_mode: "service:wireguard"
-    volumes:
-      - ./anchors:/app/anchors
-      - ./code:/app/code
+    network_mode: "service:wireguard" # Comparte red con WireGuard
     environment:
-      - MONGO_URI=mongodb://ancadmin:ancpass@mongodb:27017/
+      - MONGO_URI=mongodb://ancadmin:ancpass@mongodb:27017/anchor?authSource=admin
       - MONGO_DB=anchor
       - JWT_SECRET=${JWT_SECRET}
       - VAULT_MASTER_KEY=${VAULT_MASTER_KEY}
-      - LOCAL_AUTH_ENABLED=true
-      - LDAP_AUTH_ENABLED=false
-      # Uncomment to enable LDAP:
-      # - LDAP_AUTH_ENABLED=true
-      # - LDAP_SERVER=ldap://ldap:389
-      # - LDAP_BASE_DN=dc=anchor,dc=local
-      # - LDAP_ADMIN_DN=cn=admin,dc=anchor,dc=local
-      # - LDAP_ADMIN_PASSWORD=changeme
     depends_on:
       wireguard:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:17017/health"]
+      # Usamos python3 para el check por si no tienes 'curl' instalado
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:17017/health')" ]
       interval: 30s
-      timeout: 10s
-      retries: 3
       start_period: 15s
+    restart: unless-stopped
 
-  # ── MongoDB ──────────────────────────────────────────────────────────────
+  # ── MongoDB: La base de datos (Aislada) ──────────────────────────────────
   mongodb:
     image: mongo:6.0
     container_name: mongodb
-    # No ports published — only reachable by containers on the backend network.
-    volumes:
-      - mongodb_data:/data/db
-      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
     environment:
       MONGO_INITDB_ROOT_USERNAME: ancadmin
       MONGO_INITDB_ROOT_PASSWORD: ancpass
       MONGO_INITDB_DATABASE: anchor
+    volumes:
+      - mongodb_data:/data/db
     networks:
-      - backend
-    restart: unless-stopped
+      - backend # Solo accesible para los que están en esta red (WireGuard)
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 15s
-      timeout: 10s
+      # Check mejorado para evitar el error de "unhealthy" inicial
+      test: [ "CMD", "mongosh", "--quiet", "127.0.0.1:27017/test", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   mongodb_data:
 
+
 networks:
   backend:
-    # Private Docker network. wireguard and mongodb live here.
-    # anc-server and wg-sidecar access it through wireguard's namespace.
-    # Nothing in this network is published to the host or internet.
+    driver: bridge
