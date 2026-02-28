@@ -17,3 +17,4 @@ Thumbs.db
 CLAUDE.md
 project.json
 server/.env
+server/wireguard/.env
