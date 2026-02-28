@@ -21,7 +21,7 @@ def create_user(username: str, password: str, groups: list[str] = []):
 def authenticate_local(username: str, password: str) -> bool:
     col = get_collection("users")
     user = col.find_one({"username": username})
-    if not user:
+    if not user or "password_hash" not in user:
         return False
     return pwd_context.verify(password, user["password_hash"])
 

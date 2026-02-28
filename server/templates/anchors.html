@@ -55,8 +55,14 @@
           <th class="px-4 py-3"></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody x-show="filtered.length===0">
+        <tr>
+          <td colspan="6" class="px-4 py-10 text-center text-gray-400">No anchors found.</td>
+        </tr>
+      </tbody>
+
         <template x-for="a in filtered" :key="a.name">
+          <tbody>
 
           <!-- Main row -->
           <tr class="border-b border-gray-100 hover:bg-gray-50/50">
@@ -99,7 +105,7 @@
           </tr>
 
           <!-- Expanded JSON row -->
-          <tr x-show="expanded===a.name" x-cloak>
+          <tr x-show="expanded===a.name">
             <td colspan="6" class="bg-gray-950 border-b border-gray-800 px-0">
               <!-- Loading -->
               <div x-show="anchorJsonLoading[a.name]"
@@ -117,19 +123,15 @@
                     </button>
                   </div>
                   <pre class="px-5 pb-4 pt-1 font-mono text-xs text-emerald-300 leading-relaxed
-                               overflow-auto max-h-72 whitespace-pre"
+                               overflow-x-auto whitespace-pre"
                        x-text="JSON.stringify(anchorJson[a.name], null, 2)"></pre>
                 </div>
               </template>
             </td>
           </tr>
 
+          </tbody>
         </template>
-
-        <tr x-show="filtered.length===0">
-          <td colspan="6" class="px-4 py-10 text-center text-gray-400">No anchors found.</td>
-        </tr>
-      </tbody>
     </table>
   </div>
 
@@ -683,13 +685,14 @@
        ═══════════════════════════════════════════════════════ -->
   <div x-show="modal==='perms'"
        class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-    <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg" @click.stop>
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" @click.stop>
       <div class="px-6 pt-5 pb-3 border-b border-gray-100">
         <h3 class="font-semibold text-gray-800">Access Control</h3>
         <p class="font-mono text-xs text-blue-600 mt-0.5" x-text="pForm.name"></p>
       </div>
       <div class="px-6 py-5 space-y-5">
 
+        <!-- Groups -->
         <div>
           <label class="label">Groups</label>
           <p class="text-xs text-gray-400 -mt-0.5 mb-1.5">
@@ -720,6 +723,75 @@
           </div>
         </div>
 
+        <!-- Users (explicit allowlist) -->
+        <div>
+          <label class="label">Users (explicit allowlist)</label>
+          <p class="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1 mb-1.5">
+            If set, ONLY these users can access — groups are ignored.
+          </p>
+          <div class="min-h-[28px] flex flex-wrap gap-1 mb-1.5">
+            <span x-show="!pForm.users.length" class="text-gray-400 text-xs py-0.5">
+              No explicit users — group membership applies.
+            </span>
+            <template x-for="u in pForm.users" :key="u">
+              <span class="tag-blue">
+                <span x-text="u"></span>
+                <button type="button"
+                        @click="pForm.users=pForm.users.filter(x=>x!==u)"
+                        class="tag-x">✕</button>
+              </span>
+            </template>
+          </div>
+          <div class="flex gap-2">
+            <input x-model="pForm.newUser" list="avail-users" placeholder="Add user…"
+                   class="input flex-1 text-xs py-1.5"
+                   @keydown.enter.prevent="addTag(pForm.users,pForm.newUser);pForm.newUser=''"
+                   @keydown.188.prevent="addTag(pForm.users,pForm.newUser);pForm.newUser=''" />
+            <button type="button"
+                    @click="addTag(pForm.users,pForm.newUser);pForm.newUser=''"
+                    class="btn-sm">Add</button>
+          </div>
+        </div>
+
+        <!-- Allow group edit -->
+        <label class="flex items-start gap-2 cursor-pointer bg-gray-50 rounded p-3">
+          <input type="checkbox" x-model="pForm.allowGroupEdit" class="mt-0.5 rounded" />
+          <div>
+            <span class="text-sm font-medium text-gray-700">Allow group members to edit anchor details</span>
+            <p class="text-xs text-gray-400 mt-0.5">
+              When enabled, users in the groups list can update note, host, paths, etc.
+              They cannot change who has access — that's always the creator's role.
+            </p>
+          </div>
+        </label>
+
+        <!-- Transfer ownership -->
+        <div>
+          <label class="label">Transfer ownership to</label>
+          <input x-model="pForm.transferTo" list="avail-users"
+                 placeholder="Username — leave blank to keep ownership"
+                 class="input" />
+          <p x-show="pForm.transferTo"
+             class="text-xs text-amber-600 mt-1">
+            ⚠ After transfer you will lose creator privileges on this anchor.
+          </p>
+        </div>
+
+        <!-- Linked secrets (informational — permissions synced automatically) -->
+        <template x-if="pForm.linkedSecrets.length">
+          <div class="bg-blue-50 rounded p-3 border border-blue-100">
+            <p class="text-xs font-medium text-blue-700 mb-1">
+              Permissions will be synced automatically to linked secrets:
+            </p>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="s in pForm.linkedSecrets" :key="s">
+                <span class="text-xs font-mono bg-white text-blue-800 px-1.5 py-0.5 rounded border border-blue-200"
+                      x-text="s"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+
         <div x-show="modalError"
              class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"
              x-text="modalError"></div>
@@ -744,11 +816,26 @@
        class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
     <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
       <h3 class="text-lg font-semibold text-red-700 mb-2">Delete Anchor</h3>
-      <p class="text-sm text-gray-600 mb-5">
+      <p class="text-sm text-gray-600 mb-3">
         Permanently delete
         <strong class="font-mono break-all" x-text="dName"></strong>?
         This cannot be undone.
       </p>
+      <!-- Cascade delete option -->
+      <template x-if="dLinkedSecrets.length">
+        <label class="flex items-start gap-2 mb-4 cursor-pointer bg-red-50 rounded p-3 border border-red-200">
+          <input type="checkbox" x-model="dDeleteSecrets" class="mt-0.5" />
+          <div>
+            <span class="text-red-700 font-medium text-sm">Also delete linked secrets</span>
+            <div class="flex flex-wrap gap-1 mt-1">
+              <template x-for="s in dLinkedSecrets" :key="s">
+                <span class="text-xs font-mono bg-red-100 text-red-800 px-1.5 py-0.5 rounded"
+                      x-text="s"></span>
+              </template>
+            </div>
+          </div>
+        </label>
+      </template>
       <div class="flex justify-end gap-3">
         <button @click="modal=null"
                 class="text-sm px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
@@ -793,9 +880,12 @@
     </div>
   </div>
 
-  <!-- Datalist for group autocomplete -->
+  <!-- Datalists for autocomplete -->
   <datalist id="avail-groups">
     <template x-for="g in availableGroups" :key="g"><option :value="g"></option></template>
+  </datalist>
+  <datalist id="avail-users">
+    <template x-for="u in availableUsers" :key="u"><option :value="u"></option></template>
   </datalist>
 
 </div>
@@ -811,6 +901,8 @@
   .btn-sm:hover { background:#2563eb; border-color:#2563eb; }
   .tag-purple { display:inline-flex; align-items:center; background:#f3e8ff;
                 color:#6b21a8; font-size:.75rem; border-radius:.25rem; padding:0 .5rem; }
+  .tag-blue { display:inline-flex; align-items:center; background:#dbeafe;
+              color:#1e40af; font-size:.75rem; border-radius:.25rem; padding:0 .5rem; }
   .tag-x { margin-left:.25rem; font-weight:700; line-height:1.5rem; opacity:.5; cursor:pointer; }
   .tag-x:hover { opacity:1; }
 </style>
@@ -825,6 +917,7 @@ function anchorsPage() {
     typeFilter: '',
     expanded: null,
     availableGroups: [],
+    availableUsers: [],
 
     modal: null,
     saving: false,
@@ -860,10 +953,16 @@ function anchorsPage() {
     },
 
     // Permissions form
-    pForm: { name: '', groups: [], newGroup: '' },
+    pForm: {
+      name: '', groups: [], users: [], allowGroupEdit: false,
+      transferTo: '', newGroup: '', newUser: '',
+      linkedSecrets: [],
+    },
 
     // Delete
     dName: '',
+    dDeleteSecrets: false,
+    dLinkedSecrets: [],
 
     // ── Computed ──────────────────────────────────────────
     get filtered() {
@@ -881,7 +980,7 @@ function anchorsPage() {
     // ── Init ──────────────────────────────────────────────
     async init() {
       await this.loadAnchors();
-      this.loadGroups();
+      this.loadPickers();
       this.loadVaultSecrets();
     },
 
@@ -912,10 +1011,19 @@ function anchorsPage() {
       } catch { this.pageError = 'Network error loading anchors'; }
     },
 
-    loadGroups() {
+    async loadPickers() {
       const ownGroups = JSON.parse(localStorage.getItem('anc_groups') || '[]');
       const anchorGroups = this.anchors.flatMap(a => a.groups || []);
       this.availableGroups = [...new Set([...ownGroups, ...anchorGroups])].sort();
+      try {
+        const r = await fetch('/admin/users', { headers: this.auth() });
+        if (r.ok) {
+          const list = await r.json();
+          this.availableUsers = list.map(u => u.username).sort();
+          const userGroups = list.flatMap(u => u.groups || []);
+          this.availableGroups = [...new Set([...this.availableGroups, ...userGroups])].sort();
+        }
+      } catch {}
     },
 
     async toggleExpand(name) {
@@ -1002,7 +1110,7 @@ function anchorsPage() {
         if (!r.ok) { this.modalError = data.detail || 'Error creating anchor'; return; }
         this.modal = null;
         await this.loadAnchors();
-        this.loadGroups();
+        this.loadPickers();
       } catch { this.modalError = 'Network error'; }
       finally { this.saving = false; }
     },
@@ -1115,7 +1223,11 @@ function anchorsPage() {
       this.pForm = {
         name: a.name,
         groups: [...(a.groups || [])],
-        newGroup: '',
+        users: [...(a.users || [])],
+        allowGroupEdit: !!a.allow_group_edit,
+        transferTo: '',
+        newGroup: '', newUser: '',
+        linkedSecrets: [...(a.linked_secrets || [])],
       };
       this.modalError = '';
       this.modal = 'perms';
@@ -1124,26 +1236,39 @@ function anchorsPage() {
     async savePerms() {
       this.saving = true; this.modalError = '';
       try {
+        const body = {
+          groups: [...this.pForm.groups],
+          users: [...this.pForm.users],
+          allow_group_edit: this.pForm.allowGroupEdit,
+        };
+        if (this.pForm.transferTo.trim()) body.transfer_to = this.pForm.transferTo.trim();
         const r = await fetch('/anchors/' + this.pForm.name, {
           method: 'PATCH',
           headers: { ...this.auth(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ groups: [...this.pForm.groups] }),
+          body: JSON.stringify(body),
         });
         const data = await r.json();
         if (!r.ok) { this.modalError = data.detail || 'Error saving access'; return; }
         this.modal = null;
         await this.loadAnchors();
-        this.loadGroups();
+        this.loadPickers();
       } catch { this.modalError = 'Network error'; }
       finally { this.saving = false; }
     },
 
     // ── Delete ────────────────────────────────────────────
-    openDelete(name) { this.dName = name; this.modal = 'delete'; },
+    openDelete(name) {
+      this.dName = name;
+      this.dDeleteSecrets = false;
+      const a = this.anchors.find(x => x.name === name);
+      this.dLinkedSecrets = a?.linked_secrets || [];
+      this.modal = 'delete';
+    },
 
     async deleteAnchor() {
       try {
-        const r = await fetch('/anchors/' + this.dName, {
+        const url = '/anchors/' + this.dName + (this.dDeleteSecrets ? '?delete_secrets=true' : '');
+        const r = await fetch(url, {
           method: 'DELETE',
           headers: this.auth(),
         });
@@ -1183,7 +1308,7 @@ function anchorsPage() {
         this.modal = null;
         this.importJson = '';
         await this.loadAnchors();
-        this.loadGroups();
+        this.loadPickers();
       } catch { this.modalError = 'Network error'; }
       finally { this.saving = false; }
     },

@@ -44,6 +44,13 @@
             📋 Logs
           </a>
         </template>
+        <template x-if="isAdmin">
+          <a href="/ui/integrations"
+             class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-700 text-sm
+                    {% block nav_integrations %}{% endblock %}">
+            🔌 Integrations
+          </a>
+        </template>
       </nav>
 
       <div class="px-4 py-3 border-t border-gray-700 text-xs text-gray-400">

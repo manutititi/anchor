@@ -31,6 +31,7 @@ def list_secrets(
         "_id": 0, "id": 1, "description": 1, "version": 1,
         "created_by": 1, "created_at": 1, "last_updated": 1,
         "expires_at": 1, "groups": 1, "users": 1, "allow_group_edit": 1,
+        "anchor_link": 1,
     })
 
     result = []
@@ -48,6 +49,7 @@ def list_secrets(
                 "groups": doc.get("groups", []),
                 "users": doc.get("users", []),
                 "allow_group_edit": doc.get("allow_group_edit", False),
+                "anchor_link": doc.get("anchor_link"),
             })
     return JSONResponse(content=result)
 

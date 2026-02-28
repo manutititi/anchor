@@ -1,107 +1,104 @@
 #!/usr/bin/env bash
-set -e
+# Anchor CLI installer
+# Creates ~/.anchors/data, sets up a Python venv, and installs the anc binary.
+set -euo pipefail
 
-ANCHOR_HOME="$HOME/.anchors"
+ANCHOR_HOME="${ANCHOR_HOME:-"$HOME/.anchors"}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$ANCHOR_HOME/venv"
 
 GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
 RED="\033[0;31m"
-RESET="\033[0m"
 CYAN="\033[1;36m"
+RESET="\033[0m"
 
-echo -e "📦 Installing Anchor system to: ${GREEN}$ANCHOR_HOME${RESET}"
+info()    { echo -e "${GREEN}✓${RESET} $*"; }
+warn()    { echo -e "${YELLOW}!${RESET} $*"; }
+error()   { echo -e "${RED}✗${RESET} $*" >&2; }
+section() { echo -e "\n${CYAN}▶ $*${RESET}"; }
 
-
-# jq
-if ! command -v jq >/dev/null 2>&1; then
-  echo -e "${YELLOW}🔧 'jq' not found. Installing...${RESET}"
-  if command -v sudo >/dev/null && command -v apt >/dev/null; then
-    sudo apt update && sudo apt install -y jq
-  elif command -v sudo >/dev/null && command -v pacman >/dev/null; then
-    sudo pacman -Sy jq
-  elif command -v brew >/dev/null; then
-    brew install jq
-  else
-    echo -e "${RED}❌ Install jq manually${RESET}"
-    exit 1
-  fi
-else
-  echo -e "${GREEN}✅ 'jq' already installed.${RESET}"
-fi
-
-mkdir -p "$ANCHOR_HOME"
-mkdir -p "$ANCHOR_HOME/functions"
-mkdir -p "$ANCHOR_HOME/completions"
+# ------------------------------------------------------------------
+# 1. Directories
+# ------------------------------------------------------------------
+section "Creating directories"
 mkdir -p "$ANCHOR_HOME/data"
-mkdir -p "$ANCHOR_HOME/scripts"
-mkdir -p "$ANCHOR_HOME/server"
-mkdir -p "$ANCHOR_HOME/core"
+info "Data dir: $ANCHOR_HOME/data"
 
-cp -r "$SRC_DIR/functions/"*.sh "$ANCHOR_HOME/functions/"
-cp -r "$SRC_DIR/completions/"* "$ANCHOR_HOME/completions/"
-cp -r "$SRC_DIR/scripts/"* "$ANCHOR_HOME/scripts/" 2>/dev/null || true
-cp -r "$SRC_DIR/server/"* "$ANCHOR_HOME/server/" 2>/dev/null || true
-cp -r "$SRC_DIR/core" "$ANCHOR_HOME/"
-
-if compgen -G "$SRC_DIR/data/*.json" > /dev/null; then
-  cp "$SRC_DIR/data/"*.json "$ANCHOR_HOME/data/"
-  echo -e "${GREEN}✅ Copied anchor examples to ~/.anchors/data/${RESET}"
-fi
-
-SHELL_CONFIGS=("$HOME/.bashrc" "$HOME/.zshrc")
-
-add_if_missing() {
-  local file="$1"
-  local line="$2"
-  grep -Fxq "$line" "$file" || echo "$line" >> "$file"
-}
-
-for CONFIG in "${SHELL_CONFIGS[@]}"; do
-  if [[ -f "$CONFIG" ]]; then
-    add_if_missing "$CONFIG" 'export ANCHOR_HOME="$HOME/.anchors"'
-    add_if_missing "$CONFIG" 'export ANCHOR_DIR="$HOME/.anchors/data"'
-    add_if_missing "$CONFIG" 'export PATH="$ANCHOR_HOME/core:$PATH"'
-    add_if_missing "$CONFIG" 'for f in "$ANCHOR_HOME/functions/"*.sh; do source "$f"; done'
-    add_if_missing "$CONFIG" '[[ -f "$ANCHOR_HOME/completions/anc" ]] && source "$ANCHOR_HOME/completions/anc"'
-    echo -e "${GREEN}✅ Updated $CONFIG${RESET}"
-  fi
+# ------------------------------------------------------------------
+# 2. Python check (3.10+)
+# ------------------------------------------------------------------
+section "Checking Python version"
+PYTHON_BIN=""
+for candidate in python3.12 python3.11 python3.10 python3 python; do
+    if command -v "$candidate" &>/dev/null; then
+        ver=$("$candidate" -c 'import sys; print(sys.version_info >= (3,10))' 2>/dev/null)
+        if [[ "$ver" == "True" ]]; then
+            PYTHON_BIN="$candidate"
+            break
+        fi
+    fi
 done
 
+if [[ -z "$PYTHON_BIN" ]]; then
+    error "Python 3.10+ is required but not found."
+    echo "Install it with: sudo apt install python3.11  (or your distro's equivalent)"
+    exit 1
+fi
+info "Using $PYTHON_BIN ($("$PYTHON_BIN" --version))"
 
-sudo apt install python3.10-venv -y
-
-
-
-# Python virtual environment setup
-echo -e "\n🐍 Setting up Python virtual environment..."
-
-VENV_DIR="$ANCHOR_HOME/venv"
-REQ_FILE="$SRC_DIR/requirements.txt"
-
-# Generate default requirements.txt if missing
-if [[ ! -f "$REQ_FILE" ]]; then
-  cat > "$REQ_FILE" <<EOF
-ldap3
-PyYAML
-requests
-ldif
-jinja2
-simpleeval
-EOF
-  echo -e "${YELLOW}📦 Default requirements.txt created${RESET}"
+# ------------------------------------------------------------------
+# 3. Virtual environment
+# ------------------------------------------------------------------
+section "Setting up virtual environment at $VENV_DIR"
+if [[ ! -d "$VENV_DIR" ]]; then
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
+    info "venv created"
+else
+    warn "venv already exists — reusing"
 fi
 
-python3 -m venv "$VENV_DIR"
+# Activate
+# shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
-pip install --upgrade pip >/dev/null
-echo -e "${CYAN}📥 Installing Python dependencies...${RESET}"
-pip install -r "$REQ_FILE"
 
-echo -e "${GREEN}✅ Python environment ready in $VENV_DIR${RESET}"
+# ------------------------------------------------------------------
+# 4. Install anchor package
+# ------------------------------------------------------------------
+section "Installing anchor CLI"
+pip install --quiet --upgrade pip
+pip install --quiet -e "$SRC_DIR"
+info "anchor-cli installed → $(which anc)"
 
-echo -e "\n🎉 ${GREEN}Installation complete!${RESET}"
-echo "🔁 Reload your shell or run: source ~/.bashrc"
-echo -e "📦 Example anchor installed: ${CYAN}anc.json${RESET}"
-echo -e "🚀 Try: ${GREEN}anc ls${RESET}  then ${CYAN}anc anc${RESET} to jump into it."
+# ------------------------------------------------------------------
+# 5. Shell config — add venv bin to PATH
+# ------------------------------------------------------------------
+section "Configuring shell"
 
+add_if_missing() {
+    local file="$1" line="$2"
+    [[ -f "$file" ]] || return
+    grep -Fxq "$line" "$file" && return
+    echo "$line" >> "$file"
+    info "Added to $file: $line"
+}
+
+PATH_LINE="export PATH=\"$VENV_DIR/bin:\$PATH\""
+DATA_LINE="export ANCHOR_DIR=\"$ANCHOR_HOME/data\""
+
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    add_if_missing "$rc" "$PATH_LINE"
+    add_if_missing "$rc" "$DATA_LINE"
+done
+
+# ------------------------------------------------------------------
+# Done
+# ------------------------------------------------------------------
+echo ""
+echo -e "${GREEN}Installation complete!${RESET}"
+echo ""
+echo "  Reload your shell:   source ~/.bashrc"
+echo "  First login:         anc login --url http://localhost:17017"
+echo "  List anchors:        anc ls"
+echo "  Navigate to anchor:  cd \$(anc path myproject)"
+echo ""

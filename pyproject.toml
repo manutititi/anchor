@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anchor-cli"
+version = "2.0.0"
+description = "Anchor CLI — manage paths, secrets, and infrastructure anchors"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+    "requests>=2.31",
+    "pydantic>=2.5",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+ldap = ["ldap3>=2.9"]
+yaml = ["PyYAML>=6"]
+workflow = ["jinja2>=3", "simpleeval>=0.9"]
+all = ["ldap3>=2.9", "PyYAML>=6", "jinja2>=3", "simpleeval>=0.9"]
+
+[project.scripts]
+anc = "anchor.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["anchor"]
+
+[tool.hatch.build.targets.sdist]
+include = ["anchor/", "pyproject.toml", "README.md"]

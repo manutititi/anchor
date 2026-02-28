@@ -11,6 +11,7 @@ from endpoints.health import router as health_router
 from endpoints.admin import router as admin_router
 from endpoints.dashboard import router as dashboard_router
 from ui import router as ui_module
+from integrations.router import router as integrations_router
 
 
 templates = Jinja2Templates(directory="/app/templates")
@@ -45,6 +46,7 @@ app.include_router(anchors_router, prefix="/anchors")
 app.include_router(health_router)
 app.include_router(admin_router, prefix="/admin")
 app.include_router(dashboard_router)
+app.include_router(integrations_router, prefix="/integrations")
 app.include_router(ui_module.router, prefix="/ui")
 
 @app.get("/", include_in_schema=False)

@@ -40,3 +40,8 @@ def ui_users(request: Request):
 @router.get("/logs", response_class=HTMLResponse)
 def ui_logs(request: Request):
     return templates.TemplateResponse("logs.html", {"request": request})
+
+
+@router.get("/integrations", response_class=HTMLResponse)
+def ui_integrations(request: Request):
+    return templates.TemplateResponse("integrations.html", {"request": request})

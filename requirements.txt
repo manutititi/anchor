@@ -1,6 +1,17 @@
-ldap3
-PyYAML
-requests
-jinja2
-simpleeval
-jmespath
+# Anchor CLI — core dependencies
+# Install via: pip install -e . (preferred)
+# Or:          pip install -r requirements.txt
+
+typer>=0.12
+rich>=13
+requests>=2.31
+pydantic>=2.5
+tomli>=2.0; python_version < "3.11"
+
+# Optional: LDAP support
+# ldap3>=2.9
+
+# Optional: YAML / workflow support
+# PyYAML>=6
+# jinja2>=3
+# simpleeval>=0.9

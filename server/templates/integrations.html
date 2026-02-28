@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% block title %}Integrations — Anchor{% endblock %}
+{% block nav_integrations %}bg-gray-700 text-white font-medium{% endblock %}
+
+{% block content %}
+<div x-data="integrationsPage()" x-init="init()">
+
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-gray-800">Integrations</h1>
+    <span class="text-sm text-gray-500">External service connections</span>
+  </div>
+
+  <!-- LDAP / Active Directory card -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-2xl">
+
+    <!-- Card header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div class="flex items-center gap-3">
+        <span class="text-2xl">🗂️</span>
+        <div>
+          <h2 class="text-lg font-semibold text-gray-800">LDAP / Active Directory</h2>
+          <p class="text-xs text-gray-500">Directory service authentication &amp; group sync</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <!-- Status badge -->
+        <template x-if="status !== null">
+          <span :class="status ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
+                class="text-xs font-medium px-2.5 py-1 rounded-full">
+            <span x-text="status ? '● Enabled' : '○ Disabled'"></span>
+          </span>
+        </template>
+        <!-- Collapse toggle -->
+        <button @click="open = !open"
+                class="text-gray-400 hover:text-gray-600 text-xl leading-none select-none">
+          <span x-text="open ? '▲' : '▼'"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Config form -->
+    <div x-show="open" x-cloak class="px-6 py-5 space-y-5">
+
+      <!-- Server -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Server URL</label>
+          <input x-model="cfg.server" type="text"
+                 placeholder="ldap://192.168.1.10 or ldaps://dc01.corp:636"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Base DN</label>
+          <input x-model="cfg.base_dn" type="text"
+                 placeholder="dc=company,dc=com"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+        </div>
+      </div>
+
+      <!-- Admin bind -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Admin DN (bind user)</label>
+          <input x-model="cfg.admin_dn" type="text"
+                 placeholder="cn=admin,dc=company,dc=com"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Admin Password</label>
+          <input x-model="cfg.admin_password" type="password"
+                 placeholder="leave blank to keep current"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          <p class="text-xs text-gray-400 mt-1">Encrypted with AES-256-GCM at rest.</p>
+        </div>
+      </div>
+
+      <!-- Search bases -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">User search base</label>
+          <input x-model="cfg.user_search_base" type="text"
+                 placeholder="ou=users"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Group search base</label>
+          <input x-model="cfg.group_search_base" type="text"
+                 placeholder="ou=groups"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+        </div>
+      </div>
+
+      <!-- Advanced -->
+      <div class="grid grid-cols-3 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">
+            UID attribute
+            <span class="text-gray-400 font-normal">(AD: sAMAccountName)</span>
+          </label>
+          <input x-model="cfg.uid_attribute" type="text"
+                 placeholder="uid"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Timeout (s)</label>
+          <input x-model.number="cfg.timeout" type="number" min="1" max="30"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+        </div>
+        <div class="flex flex-col justify-end gap-2">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" x-model="cfg.tls_verify" class="rounded" />
+            <span class="text-sm text-gray-700">Verify TLS cert</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" x-model="cfg.enabled" class="rounded" />
+            <span class="text-sm text-gray-700">Enabled</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Sync attributes -->
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">
+          Sync attributes
+          <span class="text-gray-400 font-normal">(comma-separated, fetched on login)</span>
+        </label>
+        <input :value="cfg.sync_attributes ? cfg.sync_attributes.join(', ') : ''"
+               @input="cfg.sync_attributes = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+               type="text"
+               placeholder="mail, displayName, cn"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex items-center gap-3 pt-1">
+        <button @click="save()"
+                :disabled="saving"
+                class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
+          <span x-text="saving ? 'Saving…' : 'Save'"></span>
+        </button>
+        <button @click="testConn()"
+                :disabled="testing"
+                class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50">
+          <span x-text="testing ? 'Testing…' : 'Test connection'"></span>
+        </button>
+        <button @click="removeConfig()"
+                class="px-4 py-2 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50">
+          Remove config
+        </button>
+      </div>
+
+      <!-- Save result -->
+      <template x-if="saveMsg">
+        <div :class="saveOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+             class="border rounded-lg px-4 py-2 text-sm" x-text="saveMsg"></div>
+      </template>
+
+      <!-- Test result -->
+      <template x-if="testResult">
+        <div :class="testResult.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'"
+             class="border rounded-lg px-4 py-3 text-sm">
+          <div class="flex items-center gap-2 font-medium"
+               :class="testResult.ok ? 'text-green-700' : 'text-red-700'">
+            <span x-text="testResult.ok ? '✔ Connected' : '✘ Failed'"></span>
+            <span x-show="testResult.latency_ms != null" class="font-normal text-xs"
+                  x-text="'(' + testResult.latency_ms + ' ms)'"></span>
+          </div>
+          <template x-if="testResult.error">
+            <p class="mt-1 text-red-600 font-mono text-xs" x-text="testResult.error"></p>
+          </template>
+          <template x-if="testResult.ok && Object.keys(testResult.details).length">
+            <dl class="mt-2 space-y-0.5 text-gray-600">
+              <template x-for="[k, v] in Object.entries(testResult.details)" :key="k">
+                <div class="flex gap-2 text-xs">
+                  <dt class="font-medium w-32 shrink-0" x-text="k"></dt>
+                  <dd class="text-gray-500 font-mono" x-text="Array.isArray(v) ? v.join(', ') : v"></dd>
+                </div>
+              </template>
+            </dl>
+          </template>
+        </div>
+      </template>
+
+      <!-- Last saved metadata -->
+      <template x-if="meta.updated_at">
+        <p class="text-xs text-gray-400">
+          Last saved <span x-text="meta.updated_at"></span>
+          <template x-if="meta.created_by">
+            <span> by <span x-text="meta.created_by" class="font-medium"></span></span>
+          </template>
+        </p>
+      </template>
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function integrationsPage() {
+  return {
+    open: true,
+    status: null,
+    cfg: {
+      server: '',
+      base_dn: '',
+      admin_dn: '',
+      admin_password: '',
+      user_search_base: 'ou=users',
+      group_search_base: 'ou=groups',
+      uid_attribute: 'uid',
+      tls_verify: true,
+      timeout: 5,
+      enabled: true,
+      sync_attributes: ['mail', 'displayName', 'cn'],
+    },
+    meta: {},
+    saving: false,
+    saveMsg: null,
+    saveOk: false,
+    testing: false,
+    testResult: null,
+
+    token() { return localStorage.getItem('anc_token') || ''; },
+
+    async init() {
+      await this.load();
+    },
+
+    async load() {
+      const res = await fetch('/integrations/ldap', {
+        headers: { Authorization: 'Bearer ' + this.token() },
+      });
+      if (res.status === 404) return; // not configured yet
+      if (!res.ok) return;
+      const data = await res.json();
+      this.status = data.enabled;
+      this.meta = {
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        created_by: data.created_by,
+      };
+      // Merge loaded config, but don't overwrite admin_password if masked
+      if (data.config) {
+        const loaded = { ...data.config };
+        if (loaded.admin_password === '***') loaded.admin_password = '';
+        this.cfg = { ...this.cfg, ...loaded };
+      }
+    },
+
+    async save() {
+      this.saving = true;
+      this.saveMsg = null;
+      this.testResult = null;
+      try {
+        const payload = { ...this.cfg };
+        // If admin_password is empty, send nothing (keep existing)
+        if (!payload.admin_password) delete payload.admin_password;
+
+        const res = await fetch('/integrations/ldap', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + this.token(),
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.saveOk = true;
+          this.saveMsg = data.detail || 'Saved.';
+          await this.load();
+        } else {
+          this.saveOk = false;
+          this.saveMsg = data.detail || 'Save failed.';
+        }
+      } catch (e) {
+        this.saveOk = false;
+        this.saveMsg = 'Network error: ' + e.message;
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async testConn() {
+      this.testing = true;
+      this.testResult = null;
+      this.saveMsg = null;
+      try {
+        const res = await fetch('/integrations/ldap/test', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        this.testResult = await res.json();
+      } catch (e) {
+        this.testResult = { ok: false, error: 'Network error: ' + e.message };
+      } finally {
+        this.testing = false;
+      }
+    },
+
+    async removeConfig() {
+      if (!confirm('Remove LDAP configuration? The server will fall back to environment variables if set.')) return;
+      const res = await fetch('/integrations/ldap', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + this.token() },
+      });
+      if (res.ok) {
+        this.saveOk = true;
+        this.saveMsg = 'Configuration removed.';
+        this.meta = {};
+        this.status = null;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}
