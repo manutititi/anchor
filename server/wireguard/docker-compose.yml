@@ -33,10 +33,6 @@ services:
       - ./peers:/etc/wireguard/peers
       - /lib/modules:/lib/modules:ro
 
-    # Shared network with anc-server so the sidecar is reachable as http://wireguard:8000
-    networks:
-      - anc
-
     restart: unless-stopped
 
     healthcheck:
@@ -58,8 +54,9 @@ services:
   wg-sidecar:
     build: ./sidecar
     container_name: wg-sidecar
-    # Shares wireguard's network namespace — inherits the anc network via wireguard container.
-    # Do NOT add a networks: block here; network_mode and networks are mutually exclusive.
+    # Shares wireguard's network namespace: has direct access to wg0 for zero-downtime peer changes.
+    # Port 8000 is published via the wireguard container's ports section above.
+    # anc-server reaches it from its own stack via http://host.docker.internal:8000.
     network_mode: "service:wireguard"
 
     cap_add:
@@ -83,6 +80,3 @@ services:
         max-size: "10m"
         max-file: "3"
 
-networks:
-  anc:
-    external: true

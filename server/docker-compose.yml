@@ -27,6 +27,10 @@ services:
       # - LDAP_BASE_DN=dc=anchor,dc=local
       # - LDAP_ADMIN_DN=cn=admin,dc=anchor,dc=local
       # - LDAP_ADMIN_PASSWORD=changeme
+    # Allows reaching the host from inside the container.
+    # Used to call the WireGuard sidecar (separate stack) at http://host.docker.internal:8000.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - anc
     restart: unless-stopped
