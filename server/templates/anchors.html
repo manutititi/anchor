@@ -998,7 +998,7 @@ function anchorsPage() {
       this.pageError = '';
       try {
         const r = await fetch('/anchors', { headers: this.auth() });
-        if (r.status === 401) { location.href = '/ui/login'; return; }
+        if (r.status === 401) { clearSession(); location.href = '/ui/login'; return; }
         if (!r.ok) { this.pageError = 'Failed to load anchors'; return; }
         const list = await r.json();
         const me = localStorage.getItem('anc_user') || '';

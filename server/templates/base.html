@@ -61,6 +61,10 @@
       <div class="px-4 py-3 border-t border-gray-700 text-xs text-gray-400">
         <div x-text="username" class="font-medium text-gray-300 truncate"></div>
         <div x-text="groups.join(', ')" class="truncate mt-0.5"></div>
+        <div x-show="sessionExpiresSoon" x-cloak
+             class="mt-2 px-2 py-1 bg-yellow-700 text-yellow-100 rounded text-xs">
+          Session expires soon
+        </div>
         <button @click="logout()"
                 class="mt-2 text-red-400 hover:text-red-300 cursor-pointer">
           Logout
@@ -75,24 +79,55 @@
   </div>
 
   <script>
+    function tokenIsExpired(token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        return payload.exp * 1000 < Date.now();
+      } catch { return true; }
+    }
+
+    function clearSession() {
+      localStorage.removeItem('anc_token');
+      localStorage.removeItem('anc_user');
+      localStorage.removeItem('anc_groups');
+    }
+
     function appShell() {
       return {
         username: '',
         groups: [],
         isAdmin: false,
+        sessionExpiresSoon: false,
         init() {
           const token = localStorage.getItem('anc_token');
-          if (!token) { window.location.href = '/ui/login'; return; }
+          if (!token || tokenIsExpired(token)) {
+            clearSession();
+            window.location.href = '/ui/login';
+            return;
+          }
           this.username = localStorage.getItem('anc_user') || '';
           try {
             this.groups = JSON.parse(localStorage.getItem('anc_groups') || '[]');
           } catch { this.groups = []; }
           this.isAdmin = this.groups.includes('admins');
+          this._startSessionWatcher();
+        },
+        _startSessionWatcher() {
+          setInterval(() => {
+            const token = localStorage.getItem('anc_token');
+            if (!token || tokenIsExpired(token)) {
+              clearSession();
+              window.location.href = '/ui/login';
+              return;
+            }
+            try {
+              const payload = JSON.parse(atob(token.split('.')[1]));
+              this.sessionExpiresSoon = (payload.exp * 1000 - Date.now()) < 5 * 60 * 1000;
+            } catch {}
+          }, 60_000);
         },
         logout() {
-          localStorage.removeItem('anc_token');
-          localStorage.removeItem('anc_user');
-          localStorage.removeItem('anc_groups');
+          clearSession();
           window.location.href = '/ui/login';
         },
         token() { return localStorage.getItem('anc_token') || ''; },

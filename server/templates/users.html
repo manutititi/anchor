@@ -195,7 +195,7 @@ function usersPage() {
       this.pageError = '';
       try {
         const res = await fetch('/admin/users', { headers: this.authHeaders() });
-        if (res.status === 401) { window.location.href = '/ui/login'; return; }
+        if (res.status === 401) { clearSession(); window.location.href = '/ui/login'; return; }
         if (res.status === 403) { this.pageError = 'Admin access required'; return; }
         if (!res.ok) { this.pageError = 'Failed to load users'; return; }
         this.users = await res.json();

@@ -316,7 +316,7 @@ function logsPage() {
       this.pageError = '';
       try {
         const r = await fetch('/admin/logs?' + this.buildParams(0), { headers: this.auth() });
-        if (r.status === 401) { location.href = '/ui/login'; return; }
+        if (r.status === 401) { clearSession(); location.href = '/ui/login'; return; }
         if (r.status === 403) { location.href = '/ui/secrets'; return; }
         if (!r.ok) { this.pageError = 'Failed to load logs'; return; }
         const data = await r.json();
