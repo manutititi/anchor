@@ -107,7 +107,7 @@ source "$VENV_DIR/bin/activate"
 # ------------------------------------------------------------------
 section "Installing anchor CLI"
 pip install --quiet --upgrade pip
-pip install --quiet --upgrade -e "$SRC_DIR"
+pip install --quiet --upgrade -e "$SRC_DIR[vpn]"
 
 ANC_BIN=$(which anc 2>/dev/null || echo "$VENV_DIR/bin/anc")
 if $IS_UPDATE; then

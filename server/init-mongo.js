@@ -34,3 +34,8 @@ db.vpn_leases.createIndex({ expires_at: 1 });  // for janitor queries
 // Anti-replay: unique nonce index + TTL auto-expiry after 60 s
 db.vpn_nonces.createIndex({ nonce: 1 }, { unique: true });
 db.vpn_nonces.createIndex({ created_at: 1 }, { expireAfterSeconds: 60 });
+
+// Reserve uid=1 (WireGuard server) and uid=2 (linuxserver PEERS=peer1 auto-peer).
+// Dynamic users start from uid=3 (10.13.13.3+).
+// seq=1 → first $inc gives seq=2 → uid = 2+1 = 3.
+db.vpn_uid_counter.insertOne({ _id: "vpn_uid", seq: 1 });

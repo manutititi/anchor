@@ -4,6 +4,7 @@
 #
 # Port exposure:
 #   51820/udp  → WireGuard VPN  (internet-facing, clients connect here)
+#   62201/udp  → SPA knock listener (anc-server, same netns as wireguard)
 #   17017/tcp  → NOT published  (VPN only: connect first, then http://10.13.13.1:17017)
 #   8000/tcp   → NOT published  (internal: anc-server calls localhost:8000)
 #   27017/tcp  → NOT published  (internal: anc-server calls mongodb:27017)
@@ -31,12 +32,14 @@ services:
       - SERVERURL=auto
       - SERVERPORT=51820
       - INTERNAL_SUBNET=10.13.13.0
-      - PEERS=peer1
+      # PEERS not set — all peers are managed dynamically by the wg-sidecar.
+      # Do NOT add PEERS here; it auto-generates peer configs with IPs that
+      # conflict with the sidecar's dynamic allocation (both claim 10.13.13.2).
     ports:
-      - "51820:51820/udp"
-      # NOTA: No mapeamos el 17017 aquí. 
-      # Al estar en la misma red, los clientes de la VPN llegarán 
-      # directamente a la IP 10.13.13.1:17017 sin abrir puertos al mundo.
+      - "51820:51820/udp"   # WireGuard tunnel (clients connect here)
+      - "62201:62201/udp"   # SPA knock listener (handled by anc-server in same netns)
+      # 17017/tcp NOT published: clients must connect via VPN first,
+      # then reach http://10.13.13.1:17017 inside the tunnel.
     volumes:
       - ./wireguard/config:/config
       - /lib/modules:/lib/modules:ro
@@ -71,6 +74,7 @@ services:
       - MONGO_DB=anchor
       - JWT_SECRET=${JWT_SECRET}
       - VAULT_MASTER_KEY=${VAULT_MASTER_KEY}
+      - VPN_KNOCK_PORT=62201   # UDP port for the SPA knock listener
     depends_on:
       wireguard:
         condition: service_healthy

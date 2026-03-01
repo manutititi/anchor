@@ -85,12 +85,22 @@
             </div>
           </div>
 
-          <!-- Row 3: lease_hours + enabled -->
+          <!-- Row 3: lease_hours + knock_port + enabled -->
           <div class="grid grid-cols-3 gap-4 items-end">
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">Lease Duration (hours)</label>
               <input x-model.number="cfg.lease_hours" type="number" min="1" max="168"
                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">
+                SPA Knock Port
+                <span class="text-gray-400 font-normal ml-1">(UDP, 0 = disabled)</span>
+              </label>
+              <input x-model.number="cfg.knock_port" type="number" min="0" max="65535"
+                     placeholder="62201"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+              <p class="text-xs text-gray-400 mt-1">Must match <code class="bg-gray-100 px-1 rounded">VPN_KNOCK_PORT</code> in docker-compose.</p>
             </div>
             <div class="flex flex-col justify-end pb-2">
               <label class="flex items-center gap-2 cursor-pointer select-none">
@@ -494,6 +504,7 @@ function vpnPage() {
       subnet: '10.13.13.0/24',
       server_endpoint: '',
       lease_hours: 8,
+      knock_port: 0,
       enabled: true,
       routes_raw: '0.0.0.0/0',
     },

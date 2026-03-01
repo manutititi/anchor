@@ -272,118 +272,59 @@ def admin_pool_status(admin: str = Depends(_require_admin)):
 @router.post("/admin/users/{username}/otp", status_code=201, tags=["vpn"])
 def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
     """
-    Admin: assign vpn_uid + TOTP seed, generate a WireGuard keypair, register the
-    peer on the sidecar immediately, create an active lease, and save the full
-    WireGuard client config as a vault secret for username.
+    Admin: assign vpn_uid + TOTP seed for the SPA knock flow.
+
+    The client saves the token with 'anc vpn init <token>', scans the QR with
+    their authenticator app, then runs 'anc vpn up' to knock → onboarding
+    tunnel → authenticate → promote to full tunnel.
+
+    NO keypair is generated here. The knock listener registers the peer
+    dynamically when the client sends the SPA packet. Promote creates the lease.
 
     Returns:
     - provisioning_url: otpauth:// URI — scan with any TOTP app
     - provision_token:  base64url JSON — paste into 'anc vpn init <token>'
     """
-    import ipaddress
     import traceback
-    from datetime import datetime, timedelta, timezone
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import (
-        Encoding, PrivateFormat, PublicFormat, NoEncryption,
-    )
 
     try:
         user = get_collection("users").find_one({"username": username})
         if not user:
             raise HTTPException(status_code=404, detail=f"User '{username}' not found")
 
-        # WireGuard integration must be configured and sidecar reachable
         provider = _get_provider()
         if not provider.is_enabled():
             raise HTTPException(status_code=503, detail="WireGuard integration not configured or disabled")
 
+        # Validate sidecar reachability and get server pubkey
         client = provider.get_client()
         if not client:
             raise HTTPException(status_code=503, detail="WireGuard sidecar unavailable")
-
-        # Get server public key and validate sidecar connectivity
         try:
             status = client.get_status()
             server_pubkey: str = status.get("public_key", "")
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Sidecar unreachable: {exc}")
 
-        # OTP seed + vpn_uid (uid reused on re-provision)
+        # OTP seed + vpn_uid (uid reused on re-provision so IP stays stable)
         from vpn.otp import assign_vpn_uid, generate_otp_seed
         vpn_uid = assign_vpn_uid(username)
         seed = generate_otp_seed(username)
         provisioning_url = pyotp.TOTP(seed).provisioning_uri(name=username, issuer_name="Anchor")
 
-        # Server config
+        # Server config from integration settings
         wg_cfg = provider._get_config() or {}
         server_endpoint: str = wg_cfg.get("server_endpoint", "")
         subnet: str = wg_cfg.get("subnet", "10.13.13.0/24")
-        knock_port: int = int(wg_cfg.get("knock_port", 0) or 0)
         server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1) or 1)
-        lease_hours: int = provider.get_lease_hours()
 
-        # Normalise endpoint: ensure host:port format (default WireGuard port 51820)
+        # knock_port: env var takes priority over DB config (mirrors server.py lifespan)
+        knock_port: int = settings.VPN_KNOCK_PORT or int(wg_cfg.get("knock_port", 0) or 0)
+
+        # Normalise endpoint: ensure host:port format
         if server_endpoint and ":" not in server_endpoint:
             server_endpoint = f"{server_endpoint}:51820"
         knock_host = server_endpoint.split(":")[0] if ":" in server_endpoint else server_endpoint
-
-        # Generate WireGuard Curve25519 keypair (compatible with all cryptography versions)
-        wg_key = X25519PrivateKey.generate()
-        wg_privkey = base64.b64encode(
-            wg_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-        ).decode()
-        wg_pubkey = base64.b64encode(
-            wg_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        ).decode()
-
-        # Deterministic IP from vpn_uid
-        net = ipaddress.IPv4Network(subnet, strict=False)
-        assigned_ip = str(net.network_address + vpn_uid)
-
-        # Register peer on sidecar immediately ("en caliente")
-        try:
-            client.add_peer(wg_pubkey, assigned_ip, username)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=502, detail=f"Sidecar peer registration failed: {exc}")
-
-        # Revoke any pre-existing lease for this user, then create an active one
-        now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(hours=lease_hours)
-        leases_col = get_collection("vpn_leases")
-        old_lease = leases_col.find_one({"uid": username})
-        if old_lease and old_lease.get("pubkey") != wg_pubkey:
-            try:
-                client.remove_peer(old_lease["pubkey"])
-            except Exception:
-                pass
-        leases_col.delete_one({"uid": username})
-        leases_col.insert_one({
-            "uid": username,
-            "pubkey": wg_pubkey,
-            "assigned_ip": assigned_ip,
-            "peer_name": username,
-            "state": "active",
-            "expires_at": expires_at.isoformat(),
-            "created_at": now.isoformat(),
-        })
-
-        # Build WireGuard client config — split-tunnel: only server IP routed through VPN.
-        # No DNS redirection; peers cannot reach each other (each only routes to server /32).
-        server_vpn_ip = str(net.network_address + server_vpn_uid)
-        vault_path = f"vpn/{username}"
-        wg_conf = (
-            f"[Interface]\n"
-            f"PrivateKey = {wg_privkey}\n"
-            f"Address = {assigned_ip}/32\n"
-            f"\n"
-            f"[Peer]\n"
-            f"PublicKey = {server_pubkey}\n"
-            f"Endpoint = {server_endpoint}\n"
-            f"AllowedIPs = {server_vpn_ip}/32\n"
-            f"PersistentKeepalive = 25\n"
-        )
-        _save_vault_secret(vault_path, wg_conf, username)
 
         token_payload = {
             "uid": username,
@@ -396,10 +337,6 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
             "server_endpoint": server_endpoint,
             "server_pubkey": server_pubkey,
             "server_port": settings.VPN_SERVER_PORT,
-            "wg_privkey": wg_privkey,
-            "wg_pubkey": wg_pubkey,
-            "assigned_ip": assigned_ip,
-            "vault_path": vault_path,
         }
         provision_token = base64.urlsafe_b64encode(
             json.dumps(token_payload).encode()
