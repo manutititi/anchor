@@ -52,7 +52,7 @@ def _get_provider():
 
 
 def _save_vault_secret(path: str, plaintext: str, uid: str) -> None:
-    """Upsert a vault secret owned by uid (same schema as vault/router.py)."""
+    """Upsert a vault secret using the same flat schema as vault/router.py."""
     col = get_collection("ref")
     encrypted = encrypt(plaintext, path)
     now = now_tz()
@@ -61,22 +61,32 @@ def _save_vault_secret(path: str, plaintext: str, uid: str) -> None:
         col.update_one(
             {"id": path},
             {"$set": {
-                "encrypted": encrypted,
+                "value": encrypted["value"],
+                "iv": encrypted["iv"],
+                "tag": encrypted["tag"],
+                "encoding": encrypted["encoding"],
                 "last_updated": now,
+                "updated_by": uid,
                 "version": existing.get("version", 1) + 1,
             }},
         )
     else:
         col.insert_one({
+            "type": "secret",
             "id": path,
-            "encrypted": encrypted,
             "description": f"WireGuard VPN config for {uid}",
-            "created_by": uid,
+            "encoding": encrypted["encoding"],
+            "value": encrypted["value"],
+            "iv": encrypted["iv"],
+            "tag": encrypted["tag"],
+            "version": 1,
             "created_at": now,
             "last_updated": now,
-            "version": 1,
-            "groups": [],
+            "created_by": uid,
+            "updated_by": uid,
             "users": [uid],
+            "groups": [],
+            "allow_group_edit": False,
         })
 
 
