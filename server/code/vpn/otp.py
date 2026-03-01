@@ -37,7 +37,7 @@ def assign_vpn_uid(username: str) -> int:
 
     get_collection("users").update_one(
         {"username": username},
-        {"$set": {"vpn_uid": uid, "vpn_uid_assigned_at": now_tz().isoformat()}},
+        {"$set": {"vpn_uid": uid, "vpn_uid_assigned_at": now_tz()}},
     )
     return uid
 
