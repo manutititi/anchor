@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # Timezone for timestamps
     TZ: str = "Europe/Madrid"
 
+    # SPA knock listener — overrides WireGuard integration knock_port when set
+    # VPN_KNOCK_PORT=0 (default) defers to the WireGuard integration config
+    VPN_KNOCK_HOST: str = "0.0.0.0"
+    VPN_KNOCK_PORT: int = 0
+
     class Config:
         env_file = ".env"
         extra = "ignore"

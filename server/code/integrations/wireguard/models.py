@@ -8,6 +8,9 @@ class WireGuardConfig(BaseModel):
     server_endpoint: str = ""
     lease_hours: int = 8
     enabled: bool = True
+    # SPA knock listener settings (0 = listener disabled)
+    knock_port: int = 0
+    server_vpn_uid: int = 1   # UID of the server itself (always subnet.1)
 
     @field_validator("sidecar_url")
     @classmethod
@@ -21,4 +24,11 @@ class WireGuardConfig(BaseModel):
     def validate_lease_hours(cls, v: int) -> int:
         if not (1 <= v <= 168):
             raise ValueError("lease_hours must be between 1 and 168 (1 week max)")
+        return v
+
+    @field_validator("knock_port")
+    @classmethod
+    def validate_knock_port(cls, v: int) -> int:
+        if not (0 <= v <= 65535):
+            raise ValueError("knock_port must be 0–65535 (0 = disabled)")
         return v

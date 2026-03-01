@@ -2,15 +2,19 @@
 VPN endpoints — WireGuard lease management.
 
 User endpoints (any authenticated user):
-  POST   /vpn/request          — request a VPN lease (pubkey required)
+  POST   /vpn/request          — request a VPN lease (classic pool-based flow)
+  POST   /vpn/promote          — promote an SPA onboarding lease to active
   GET    /vpn/status           — get own active lease
   DELETE /vpn/lease            — revoke own lease
 
 Admin endpoints (admins group only):
-  GET    /vpn/admin/leases             — list all active leases
-  DELETE /vpn/admin/leases/{uid}       — revoke any user's lease
-  GET    /vpn/admin/pool               — pool status (free/leased counts)
+  POST   /vpn/admin/users/{username}/otp   — generate OTP seed + assign vpn_uid
+  DELETE /vpn/admin/users/{username}/otp   — revoke OTP seed + vpn_uid
+  GET    /vpn/admin/leases                 — list all active leases
+  DELETE /vpn/admin/leases/{uid}           — revoke any user's lease
+  GET    /vpn/admin/pool                   — pool status (free/leased counts)
 """
+import pyotp
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -222,3 +226,108 @@ def admin_revoke_lease(uid: str, admin: str = Depends(_require_admin)):
 def admin_pool_status(admin: str = Depends(_require_admin)):
     """Admin: IP pool utilisation summary."""
     return JSONResponse(content=pool_status())
+
+
+# ---------------------------------------------------------------------------
+# SPA flow — OTP provisioning + promote
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/users/{username}/otp", status_code=201, tags=["vpn"])
+def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
+    """
+    Admin: generate a TOTP seed and assign a deterministic vpn_uid for username.
+    The returned provisioning_url can be scanned as a QR code in any TOTP app.
+    The seed_b32 is required for the CLI wizard (anc vpn up first-time setup).
+    """
+    user = get_collection("users").find_one({"username": username})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+
+    from vpn.otp import assign_vpn_uid, generate_otp_seed
+    vpn_uid = assign_vpn_uid(username)
+    seed = generate_otp_seed(username)
+    provisioning_url = pyotp.TOTP(seed).provisioning_uri(
+        name=username, issuer_name="Anchor"
+    )
+
+    return JSONResponse(status_code=201, content={
+        "vpn_uid": vpn_uid,
+        "seed_b32": seed,
+        "provisioning_url": provisioning_url,
+    })
+
+
+@router.delete("/admin/users/{username}/otp", tags=["vpn"])
+def admin_revoke_otp(username: str, admin: str = Depends(_require_admin)):
+    """Admin: revoke the OTP seed and vpn_uid for username."""
+    get_collection("users").update_one(
+        {"username": username},
+        {"$unset": {"otp_seed_enc": "", "vpn_uid": "", "vpn_uid_assigned_at": ""}},
+    )
+    return JSONResponse(content={"detail": f"OTP and VPN UID revoked for '{username}'"})
+
+
+@router.post("/promote", tags=["vpn"])
+def promote_lease(current_user: str = Depends(get_current_user)):
+    """
+    Promote an onboarding VPN lease (created by the SPA knock flow) to active.
+
+    Called by the client after authenticating through the restricted tunnel.
+    Returns the full WireGuard config with AllowedIPs = 0.0.0.0/0 so the
+    client can hot-reload the tunnel without bringing it down.
+    """
+    leases_col = get_collection("vpn_leases")
+    lease = leases_col.find_one({"uid": current_user, "state": "onboarding"})
+    if not lease:
+        raise HTTPException(
+            status_code=404,
+            detail="No onboarding lease found. Run 'anc vpn up' first.",
+        )
+
+    provider = _get_provider()
+    if not provider.is_enabled():
+        raise HTTPException(status_code=503, detail="WireGuard not configured")
+
+    client = provider.get_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Sidecar unavailable")
+
+    try:
+        status = client.get_status()
+        server_pubkey = status.get("public_key", "")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Sidecar error: {exc}")
+
+    server_endpoint = provider.get_server_endpoint()
+    lease_hours = provider.get_lease_hours()
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=lease_hours)
+
+    leases_col.update_one(
+        {"uid": current_user},
+        {"$set": {
+            "state": "active",
+            "expires_at": expires_at.isoformat(),
+            "server_pubkey": server_pubkey,
+        }},
+    )
+
+    wg_conf = (
+        f"[Interface]\n"
+        f"Address = {lease['assigned_ip']}/32\n"
+        f"DNS = 1.1.1.1\n"
+        f"\n"
+        f"[Peer]\n"
+        f"PublicKey = {server_pubkey}\n"
+        f"Endpoint = {server_endpoint}\n"
+        f"AllowedIPs = 0.0.0.0/0\n"
+        f"PersistentKeepalive = 25\n"
+    )
+
+    return JSONResponse(content={
+        "assigned_ip": lease["assigned_ip"],
+        "server_pubkey": server_pubkey,
+        "server_endpoint": server_endpoint,
+        "lease_expires": expires_at.isoformat(),
+        "wg_conf": wg_conf,
+    })

@@ -15,6 +15,7 @@ from ui import router as ui_module
 from integrations.router import router as integrations_router
 from vpn.router import router as vpn_router
 from vpn.janitor import start_janitor
+from vpn.knock import start_knock_listener
 
 
 templates = Jinja2Templates(directory="/app/templates")
@@ -25,6 +26,23 @@ ui_module.set_templates(templates)
 async def lifespan(app: FastAPI):
     get_client()  # Verify MongoDB is reachable at startup
     asyncio.create_task(start_janitor())
+
+    # Start SPA knock listener if WireGuard integration has knock_port configured
+    try:
+        from integrations.wireguard.provider import WireGuardProvider
+        from config import settings
+        provider = WireGuardProvider()
+        if provider.is_enabled():
+            wg_cfg = provider._get_config() or {}
+            knock_port = settings.VPN_KNOCK_PORT or int(wg_cfg.get("knock_port", 0))
+            if knock_port > 0:
+                subnet = wg_cfg.get("subnet", "10.13.13.0/24")
+                asyncio.ensure_future(
+                    start_knock_listener(settings.VPN_KNOCK_HOST, knock_port, subnet)
+                )
+    except Exception:
+        pass  # WireGuard not configured — skip knock listener
+
     yield
     close_client()
 

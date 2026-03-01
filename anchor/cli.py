@@ -13,6 +13,7 @@ import typer
 from anchor.commands import login, ls, path, pull, push, set
 from anchor.commands.go import anchor_type, go
 from anchor.commands.secret import app as secret_app
+from anchor.commands.vpn import app as vpn_app
 
 app = typer.Typer(
     name="anc",
@@ -41,6 +42,7 @@ app.command("_type", hidden=True)(anchor_type)
 # Subgroups
 # ------------------------------------------------------------------
 app.add_typer(secret_app, name="secret")
+app.add_typer(vpn_app, name="vpn")
 
 
 def main() -> None:

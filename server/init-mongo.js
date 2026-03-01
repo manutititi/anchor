@@ -25,6 +25,12 @@ db.anchors.createIndex({ name: 1 }, { unique: true });
 // VPN collections
 db.createCollection("vpn_ip_pool");
 db.createCollection("vpn_leases");
+db.createCollection("vpn_nonces");
+db.createCollection("vpn_uid_counter");
 
 db.vpn_leases.createIndex({ uid: 1 }, { unique: true });
 db.vpn_leases.createIndex({ expires_at: 1 });  // for janitor queries
+
+// Anti-replay: unique nonce index + TTL auto-expiry after 60 s
+db.vpn_nonces.createIndex({ nonce: 1 }, { unique: true });
+db.vpn_nonces.createIndex({ created_at: 1 }, { expireAfterSeconds: 60 });
