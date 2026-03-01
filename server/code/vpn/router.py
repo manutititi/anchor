@@ -298,6 +298,10 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
         knock_port: int = int(wg_cfg.get("knock_port", 0) or 0)
         server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1) or 1)
         lease_hours: int = provider.get_lease_hours()
+
+        # Normalise endpoint: ensure host:port format (default WireGuard port 51820)
+        if server_endpoint and ":" not in server_endpoint:
+            server_endpoint = f"{server_endpoint}:51820"
         knock_host = server_endpoint.split(":")[0] if ":" in server_endpoint else server_endpoint
 
         # Generate WireGuard Curve25519 keypair (compatible with all cryptography versions)

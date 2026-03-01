@@ -58,7 +58,7 @@
             </div>
           </div>
 
-          <!-- Row 2: subnet + server_endpoint -->
+          <!-- Row 2: subnet + server_endpoint (host + port split) -->
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">VPN Subnet (CIDR)</label>
@@ -68,11 +68,20 @@
               <p class="text-xs text-gray-400 mt-1">.0 (network), .1 (server) and .255 (broadcast) are reserved.</p>
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Server Endpoint</label>
-              <input x-model="cfg.server_endpoint" type="text"
-                     placeholder="1.2.3.4:51820"
-                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-              <p class="text-xs text-gray-400 mt-1">Sent to clients in their wg config.</p>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Server Endpoint <span class="text-red-400">*</span></label>
+              <div class="flex gap-2">
+                <input x-model="endpointHost"
+                       @input="cfg.server_endpoint = endpointHost + ':' + endpointPort"
+                       type="text"
+                       placeholder="1.2.3.4 or vpn.example.com"
+                       class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                <input x-model.number="endpointPort"
+                       @input="cfg.server_endpoint = endpointHost + ':' + endpointPort"
+                       type="number" min="1" max="65535"
+                       placeholder="51820"
+                       class="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+              </div>
+              <p class="text-xs text-gray-400 mt-1">Public IP/hostname and UDP port. Sent to clients in their wg config.</p>
             </div>
           </div>
 
@@ -463,6 +472,8 @@ function vpnPage() {
     // Admin state
     cfgOpen: true,
     wgStatus: null,
+    endpointHost: '',
+    endpointPort: 51820,
     cfg: {
       sidecar_url: '',
       api_key: '',
@@ -517,6 +528,16 @@ function vpnPage() {
         const loaded = { ...data.config };
         if (loaded.api_key === '***') loaded.api_key = '';
         this.cfg = { ...this.cfg, ...loaded };
+        // Populate split host/port fields from stored server_endpoint
+        const ep = this.cfg.server_endpoint || '';
+        const colon = ep.lastIndexOf(':');
+        if (colon !== -1) {
+          this.endpointHost = ep.slice(0, colon);
+          this.endpointPort = parseInt(ep.slice(colon + 1)) || 51820;
+        } else {
+          this.endpointHost = ep;
+          this.endpointPort = 51820;
+        }
       }
     },
 
