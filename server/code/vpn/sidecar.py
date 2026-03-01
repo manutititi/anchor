@@ -46,9 +46,9 @@ class SidecarClient:
         except Exception as exc:
             raise RuntimeError(f"Sidecar connection error: {exc}")
 
-    def add_peer(self, pubkey: str, allowed_ip: str, name: str) -> None:
-        """Add or update a WireGuard peer on the sidecar."""
-        self._request(
+    def add_peer(self, pubkey: str, allowed_ip: str, name: str) -> dict:
+        """Add or update a WireGuard peer on the sidecar. Returns sidecar response."""
+        return self._request(
             "POST",
             "/peers",
             {"pubkey": pubkey, "allowed_ip": allowed_ip, "name": name},
