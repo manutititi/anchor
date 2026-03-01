@@ -26,9 +26,24 @@ class WireGuardConfig(BaseModel):
             raise ValueError("lease_hours must be between 1 and 168 (1 week max)")
         return v
 
+    # Networks routed through the tunnel (AllowedIPs in client config).
+    # Default: 0.0.0.0/0 (full tunnel / all traffic).
+    routes: list[str] = ["0.0.0.0/0"]
+
     @field_validator("knock_port")
     @classmethod
     def validate_knock_port(cls, v: int) -> int:
         if not (0 <= v <= 65535):
             raise ValueError("knock_port must be 0–65535 (0 = disabled)")
+        return v
+
+    @field_validator("routes")
+    @classmethod
+    def validate_routes(cls, v: list[str]) -> list[str]:
+        import ipaddress
+        for cidr in v:
+            try:
+                ipaddress.IPv4Network(cidr, strict=False)
+            except ValueError:
+                raise ValueError(f"Invalid CIDR: {cidr}")
         return v

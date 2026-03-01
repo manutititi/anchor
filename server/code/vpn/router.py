@@ -204,6 +204,30 @@ def vpn_status(current_user: str = Depends(get_current_user)):
     return JSONResponse(content=lease)
 
 
+@router.get("/sync", tags=["vpn"])
+def vpn_sync(current_user: str = Depends(get_current_user)):
+    """
+    Return current routes and endpoint info for the caller's active VPN lease.
+    Clients can call this to refresh AllowedIPs without going through the full
+    promote flow (e.g. after admin changes the routed networks in the UI).
+    """
+    lease = get_collection("vpn_leases").find_one(
+        {"uid": current_user, "state": "active"}, {"_id": 0}
+    )
+    if not lease:
+        raise HTTPException(status_code=404, detail="No active VPN lease")
+
+    provider = _get_provider()
+    routes = provider.get_routes()
+    return JSONResponse(content={
+        "assigned_ip": lease["assigned_ip"],
+        "routes": routes,
+        "server_pubkey": lease.get("server_pubkey", ""),
+        "server_endpoint": provider.get_server_endpoint(),
+        "lease_expires": lease.get("expires_at", ""),
+    })
+
+
 @router.delete("/lease", tags=["vpn"])
 def revoke_own_lease(current_user: str = Depends(get_current_user)):
     """Revoke the caller's own VPN lease."""
@@ -473,10 +497,12 @@ def promote_lease(current_user: str = Depends(get_current_user)):
         f"PersistentKeepalive = 25\n"
     )
 
+    routes = provider.get_routes()
     return JSONResponse(content={
         "assigned_ip": lease["assigned_ip"],
         "server_pubkey": server_pubkey,
         "server_endpoint": server_endpoint,
         "lease_expires": expires_at.isoformat(),
+        "routes": routes,
         "wg_conf": wg_conf,
     })

@@ -100,6 +100,20 @@
             </div>
           </div>
 
+          <!-- Row 4: Routed Networks -->
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">
+              Routed Networks
+              <span class="text-gray-400 font-normal ml-1">(one CIDR per line)</span>
+            </label>
+            <textarea x-model="cfg.routes_raw" rows="3"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      placeholder="0.0.0.0/0&#10;10.100.0.0/16"></textarea>
+            <p class="text-xs text-gray-400 mt-1">
+              Networks routed through the VPN tunnel for clients. Default: <code class="bg-gray-100 px-1 rounded">0.0.0.0/0</code> (all traffic).
+            </p>
+          </div>
+
           <!-- Action buttons -->
           <div class="flex items-center gap-3 pt-1">
             <button @click="saveCfg()"
@@ -481,6 +495,7 @@ function vpnPage() {
       server_endpoint: '',
       lease_hours: 8,
       enabled: true,
+      routes_raw: '0.0.0.0/0',
     },
     cfgMeta: {},
     saving: false,
@@ -527,6 +542,9 @@ function vpnPage() {
       if (data.config) {
         const loaded = { ...data.config };
         if (loaded.api_key === '***') loaded.api_key = '';
+        // Convert routes array → textarea string before merging
+        loaded.routes_raw = (loaded.routes || ['0.0.0.0/0']).join('\n');
+        delete loaded.routes;
         this.cfg = { ...this.cfg, ...loaded };
         // Populate split host/port fields from stored server_endpoint
         const ep = this.cfg.server_endpoint || '';
@@ -548,6 +566,10 @@ function vpnPage() {
       try {
         const payload = { ...this.cfg };
         if (!payload.api_key) delete payload.api_key;
+        // Convert textarea string → routes array; drop the raw field
+        payload.routes = (payload.routes_raw || '0.0.0.0/0')
+          .split('\n').map(s => s.trim()).filter(Boolean);
+        delete payload.routes_raw;
         const res = await fetch('/integrations/wireguard', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.token() },

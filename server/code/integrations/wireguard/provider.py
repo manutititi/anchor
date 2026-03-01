@@ -79,3 +79,7 @@ class WireGuardProvider(IntegrationProvider):
     def get_subnet(self) -> str:
         cfg = self._get_config()
         return cfg.get("subnet", "10.13.13.0/24") if cfg else "10.13.13.0/24"
+
+    def get_routes(self) -> list[str]:
+        cfg = self._get_config()
+        return list(cfg.get("routes", ["0.0.0.0/0"])) if cfg else ["0.0.0.0/0"]

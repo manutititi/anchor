@@ -19,8 +19,8 @@ dependencies = [
 ldap = ["ldap3>=2.9"]
 yaml = ["PyYAML>=6"]
 workflow = ["jinja2>=3", "simpleeval>=0.9"]
-vpn = ["pyotp>=2.9", "pycryptodome>=3.19"]
-all = ["ldap3>=2.9", "PyYAML>=6", "jinja2>=3", "simpleeval>=0.9", "pyotp>=2.9", "pycryptodome>=3.19"]
+vpn = ["pycryptodome>=3.19", "qrcode>=7.4"]
+all = ["ldap3>=2.9", "PyYAML>=6", "jinja2>=3", "simpleeval>=0.9", "pycryptodome>=3.19", "qrcode>=7.4"]
 
 [project.scripts]
 anc = "anchor.cli:app"

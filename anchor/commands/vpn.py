@@ -9,8 +9,8 @@ First-time setup: 'anc vpn up' runs an interactive wizard that saves
 ~/.config/anchor/vpn.toml (mode 0600).
 
 Dependencies (install with pip install 'anchor-cli[vpn]'):
-  pyotp>=2.9       — TOTP code generation
   pycryptodome>=3  — AES-256-GCM for SPA packet
+  qrcode>=7.4      — ASCII QR code in terminal (optional, falls back to URL)
 
 External binaries (wireguard-tools, must be in PATH):
   wg, wg-quick     — WireGuard key generation and tunnel management
@@ -138,6 +138,13 @@ def _run_wizard() -> dict:
             raise typer.Exit(1)
         _save_vpn_config(cfg)
         console.print(f"[green]Config saved to[/green] {VPN_CONFIG_FILE}")
+        seed = cfg.get("seed_b32", "")
+        uid = cfg.get("uid", "")
+        if seed and uid:
+            from urllib.parse import quote
+            purl = f"otpauth://totp/Anchor:{quote(uid)}?secret={seed}&issuer=Anchor"
+            _show_qr(purl)
+            console.print("[dim]Scan the QR with your authenticator app, then run [bold]anc vpn up[/bold][/dim]")
         return cfg
 
     # ── Manual fallback ──────────────────────────────────────────────────────
@@ -185,21 +192,29 @@ def _run_wizard() -> dict:
 
 def _check_vpn_deps() -> None:
     """Fail fast with a helpful message if optional VPN deps are missing."""
-    missing = []
-    try:
-        import pyotp  # noqa: F401
-    except ImportError:
-        missing.append("pyotp")
     try:
         from Crypto.Cipher import AES  # noqa: F401
     except ImportError:
-        missing.append("pycryptodome")
-    if missing:
         console.print(
-            f"[red]Missing VPN dependencies: {', '.join(missing)}[/red]\n"
+            "[red]Missing VPN dependency: pycryptodome[/red]\n"
             "Install with: [bold]pip install 'anchor-cli[vpn]'[/bold]"
         )
         raise typer.Exit(1)
+
+
+def _show_qr(provisioning_url: str) -> None:
+    """Print an ASCII QR code in the terminal for the TOTP provisioning URL."""
+    try:
+        import qrcode  # type: ignore[import]
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(provisioning_url)
+        qr.make(fit=True)
+        console.print("\n[bold]Scan this QR with Google Authenticator / Authy:[/bold]")
+        qr.print_ascii(invert=True)
+        console.print()
+    except ImportError:
+        console.print(f"[dim]Provisioning URL:[/dim] {provisioning_url}")
+        console.print("[dim](Install qrcode for a QR code in terminal)[/dim]")
 
 
 def _uid_to_ip(uid: int, subnet: str) -> str:
@@ -379,13 +394,27 @@ def vpn_init(
     console.print(
         f"[green]VPN configured for user[/green] [bold]{cfg['uid']}[/bold] "
         f"[dim](IP: {ip_hint}{keypair_hint})[/dim]\n"
-        f"Config saved to {VPN_CONFIG_FILE}\n\n"
-        f"Run [bold]anc vpn up[/bold] to connect."
+        f"Config saved to {VPN_CONFIG_FILE}"
     )
+
+    seed = cfg.get("seed_b32", "")
+    uid = cfg.get("uid", "")
+    if seed and uid:
+        from urllib.parse import quote
+        purl = f"otpauth://totp/Anchor:{quote(uid)}?secret={seed}&issuer=Anchor"
+        _show_qr(purl)
+        console.print("[dim]Scan the QR with your authenticator app, then run [bold]anc vpn up[/bold][/dim]")
+    else:
+        console.print("\nRun [bold]anc vpn up[/bold] to connect.")
 
 
 @app.command("up")
-def vpn_up() -> None:
+def vpn_up(
+    totp_code: Optional[str] = typer.Argument(
+        None,
+        help="6-digit TOTP from your authenticator app. Prompted interactively if not given.",
+    ),
+) -> None:
     """
     Bring up the WireGuard VPN tunnel.
 
@@ -394,15 +423,14 @@ def vpn_up() -> None:
     PRE-PROVISIONED (anc vpn init <token>): The admin pre-generated the keypair
     and registered the peer. Connect directly — no knock or promote needed.
 
-    SPA KNOCK (manual setup): Send a UDP knock, bring up a restricted onboarding
-    tunnel, authenticate, then promote to the full tunnel.
+    SPA KNOCK (manual setup): Send a UDP knock with your TOTP code, bring up a
+    restricted onboarding tunnel, authenticate, then promote to the full tunnel.
     """
     _check_vpn_deps()
 
     # ── 1. Read / create config ──────────────────────────────────────────────
     cfg = _load_vpn_config()
     if not cfg:
-        import pyotp  # noqa: F401 — ensure deps available before wizard
         cfg = _run_wizard()
 
     uid: str = cfg["uid"]
@@ -477,9 +505,7 @@ def vpn_up() -> None:
         return
 
     # ── SPA KNOCK PATH ───────────────────────────────────────────────────────
-    # Manual / knock-based setup: uses TOTP + SPA to register peer dynamically.
-    import pyotp
-
+    # Knock-based setup: uses user-supplied TOTP + SPA to register peer.
     seed_b32: str = cfg["seed_b32"]
     knock_host: str = cfg["knock_host"]
     knock_port: int = int(cfg.get("knock_port", 62201))
@@ -488,8 +514,11 @@ def vpn_up() -> None:
     with console.status("[bold]Generating keypair…"):
         privkey, pubkey = _wg_genkey()
 
-    # ── 3. Generate OTP and send knock ──────────────────────────────────────
-    otp_str = pyotp.TOTP(seed_b32).now()
+    # ── 3. Get TOTP from user and send knock ─────────────────────────────────
+    if totp_code:
+        otp_str = totp_code.strip()
+    else:
+        otp_str = Prompt.ask("[cyan]Enter TOTP from your authenticator app")
     pkt = _build_spa_packet(uid, otp_str, pubkey, seed_b32)
 
     with console.status(f"[bold]Knocking {knock_host}:{knock_port}…"):
@@ -578,6 +607,7 @@ def vpn_up() -> None:
     server_pubkey: str = promote_data["server_pubkey"]
     server_endpoint: str = promote_data["server_endpoint"]
     lease_expires: str = promote_data["lease_expires"]
+    routes_list: list[str] = promote_data.get("routes", ["0.0.0.0/0"])
 
     # Update cached values for next run
     cfg["server_pubkey"] = server_pubkey
@@ -592,7 +622,7 @@ def vpn_up() -> None:
         my_ip=assigned_ip,
         server_pubkey=server_pubkey,
         server_endpoint=server_endpoint,
-        allowed_ips="0.0.0.0/0",
+        allowed_ips=", ".join(routes_list),
     )
 
     # Hot-reload without dropping the tunnel
@@ -609,6 +639,7 @@ def vpn_up() -> None:
     table.add_column(style="dim")
     table.add_column()
     table.add_row("IP address", f"[green]{assigned_ip}[/green]")
+    table.add_row("Routes", ", ".join(routes_list))
     table.add_row("Server endpoint", server_endpoint)
     table.add_row("Server pubkey", server_pubkey[:16] + "…")
     table.add_row("Lease expires", lease_expires.replace("T", " ").split(".")[0] + " UTC")
