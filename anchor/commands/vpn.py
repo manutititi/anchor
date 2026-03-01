@@ -456,18 +456,16 @@ def vpn_up(
         my_ip_str = _uid_to_ip(2, subnet)
 
     # ── PRE-PROVISIONED PATH ─────────────────────────────────────────────────
-    # When the server pre-generated the keypair (token contains wg_privkey),
-    # the peer is already registered on the sidecar with state=active.
-    # Skip knock + onboarding + promote — just bring up the full tunnel.
+    # Server pre-generated the keypair (token contains wg_privkey).
+    # Peer is already registered on the sidecar with state=active.
+    # Flow: split-tunnel up → handshake → auth → /vpn/sync → hot-reload routes.
     if cfg.get("wg_privkey") and cfg.get("wg_pubkey"):
         privkey = cfg["wg_privkey"]
         server_pubkey = cfg.get("server_pubkey", server_pubkey_cfg)
         assigned_ip = cfg.get("assigned_ip", my_ip_str)
-        lease_expires = ""
 
         with console.status("[bold]Bringing up VPN tunnel…"):
-            # Split-tunnel: only route traffic to the server IP through the VPN.
-            # Peers can't see each other; no DNS redirection.
+            # Start with split-tunnel (server IP only) so we can reach the API.
             _write_wg_conf(
                 privkey=privkey,
                 my_ip=assigned_ip,
@@ -494,10 +492,59 @@ def vpn_up(
             )
             raise typer.Exit(1)
 
+        # Authenticate via VPN tunnel to fetch current routes from /vpn/sync
+        internal_url = f"http://{server_vpn_ip}:{server_port}"
+        token: Optional[str] = None
+
+        creds = load_credentials()
+        existing_token = creds.get("token")
+        if existing_token and _token_valid(existing_token):
+            token = existing_token
+            console.print("[dim]Using cached credentials.[/dim]")
+        else:
+            console.print(f"[bold]Authenticating via VPN tunnel ({internal_url})…[/bold]")
+            token = _do_login(internal_url, uid)
+            if token:
+                creds["token"] = token
+                save_credentials(creds)
+
+        if not token:
+            # Auth failed but tunnel is up — still usable with token routes
+            console.print("[yellow]Auth failed — using routes from provision token.[/yellow]")
+            routes_list: list[str] = cfg.get("routes", ["0.0.0.0/0"])
+        else:
+            # Fetch current routes from server
+            try:
+                internal_client = AnchorClient(server_url=internal_url, token=token)
+                sync_resp = internal_client.get("/vpn/sync")
+                if sync_resp.status_code == 200:
+                    routes_list = sync_resp.json().get("routes", ["0.0.0.0/0"])
+                else:
+                    routes_list = cfg.get("routes", ["0.0.0.0/0"])
+            except AnchorClientError:
+                routes_list = cfg.get("routes", ["0.0.0.0/0"])
+
+        # Hot-reload with full routes (no tunnel drop)
+        _write_wg_conf(
+            privkey=privkey,
+            my_ip=assigned_ip,
+            server_pubkey=server_pubkey,
+            server_endpoint=server_endpoint_cfg,
+            allowed_ips=", ".join(routes_list),
+        )
+        syncconf = subprocess.run(
+            f"sudo wg syncconf {WG_IFACE} <(sudo wg-quick strip {WG_CONF})",
+            shell=True, executable="/bin/bash",
+            capture_output=True, text=True,
+        )
+        if syncconf.returncode != 0:
+            console.print(f"[yellow]wg syncconf warning:[/yellow] {syncconf.stderr.strip()}")
+
         table = Table.grid(padding=(0, 2))
         table.add_column(style="dim")
         table.add_column()
         table.add_row("IP address", f"[green]{assigned_ip}[/green]")
+        table.add_row("Routes", ", ".join(routes_list))
         table.add_row("Server endpoint", server_endpoint_cfg)
         table.add_row("Server pubkey", server_pubkey[:16] + "…")
         table.add_row("Interface", WG_IFACE)

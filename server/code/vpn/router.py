@@ -272,14 +272,17 @@ def admin_pool_status(admin: str = Depends(_require_admin)):
 @router.post("/admin/users/{username}/otp", status_code=201, tags=["vpn"])
 def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
     """
-    Admin: assign vpn_uid + TOTP seed for the SPA knock flow.
+    Admin: provision WireGuard peer for a user.
 
-    The client saves the token with 'anc vpn init <token>', scans the QR with
-    their authenticator app, then runs 'anc vpn up' to knock → onboarding
-    tunnel → authenticate → promote to full tunnel.
+    Generates a WireGuard keypair server-side, registers the peer on the
+    sidecar, creates an active lease, and saves the full wg.conf as a vault
+    secret (vpn/{username}) so the user can see their peer config in the UI.
 
-    NO keypair is generated here. The knock listener registers the peer
-    dynamically when the client sends the SPA packet. Promote creates the lease.
+    Also generates a TOTP seed so the user can scan the QR into their
+    authenticator app (used when the CLI re-authenticates via SPA knock).
+
+    The admin shares the provision_token with the user out-of-band.
+    The user runs: anc vpn init <token>  →  anc vpn up
 
     Returns:
     - provisioning_url: otpauth:// URI — scan with any TOTP app
@@ -297,11 +300,11 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
             raise HTTPException(status_code=503, detail="WireGuard integration not configured or disabled")
 
         # Validate sidecar reachability and get server pubkey
-        client = provider.get_client()
-        if not client:
+        sidecar = provider.get_client()
+        if not sidecar:
             raise HTTPException(status_code=503, detail="WireGuard sidecar unavailable")
         try:
-            status = client.get_status()
+            status = sidecar.get_status()
             server_pubkey: str = status.get("public_key", "")
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Sidecar unreachable: {exc}")
@@ -317,14 +320,82 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
         server_endpoint: str = wg_cfg.get("server_endpoint", "")
         subnet: str = wg_cfg.get("subnet", "10.13.13.0/24")
         server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1) or 1)
-
-        # knock_port: env var takes priority over DB config (mirrors server.py lifespan)
         knock_port: int = settings.VPN_KNOCK_PORT or int(wg_cfg.get("knock_port", 0) or 0)
 
         # Normalise endpoint: ensure host:port format
         if server_endpoint and ":" not in server_endpoint:
             server_endpoint = f"{server_endpoint}:51820"
         knock_host = server_endpoint.split(":")[0] if ":" in server_endpoint else server_endpoint
+
+        # Generate WireGuard keypair server-side
+        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding, NoEncryption, PrivateFormat, PublicFormat,
+        )
+        priv = X25519PrivateKey.generate()
+        wg_privkey = base64.b64encode(
+            priv.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+        ).decode()
+        wg_pubkey = base64.b64encode(
+            priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        ).decode()
+
+        # Deterministic IP from vpn_uid
+        from vpn.spa import uid_to_ip
+        assigned_ip = uid_to_ip(vpn_uid, subnet)
+
+        # Remove any existing peer for this user before re-provisioning
+        leases_col = get_collection("vpn_leases")
+        existing_lease = leases_col.find_one({"uid": username})
+        if existing_lease and existing_lease.get("pubkey"):
+            try:
+                sidecar.remove_peer(existing_lease["pubkey"])
+            except Exception:
+                pass
+        leases_col.delete_one({"uid": username})
+
+        # Register peer on sidecar
+        try:
+            sidecar.add_peer(wg_pubkey, assigned_ip, username)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=f"Sidecar error registering peer: {exc}")
+
+        # Create active lease
+        lease_hours = provider.get_lease_hours()
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(hours=lease_hours)
+        leases_col.insert_one({
+            "uid": username,
+            "pubkey": wg_pubkey,
+            "assigned_ip": assigned_ip,
+            "peer_name": username,
+            "state": "active",
+            "server_pubkey": server_pubkey,
+            "expires_at": expires_at.isoformat(),
+            "created_at": now.isoformat(),
+            "vault_path": f"vpn/{username}",
+        })
+
+        # Build full wg.conf and save as vault secret
+        routes = provider.get_routes()
+        wg_conf = (
+            f"[Interface]\n"
+            f"PrivateKey = {wg_privkey}\n"
+            f"Address = {assigned_ip}/32\n"
+            f"DNS = 1.1.1.1\n"
+            f"\n"
+            f"[Peer]\n"
+            f"PublicKey = {server_pubkey}\n"
+            f"Endpoint = {server_endpoint}\n"
+            f"AllowedIPs = {', '.join(routes)}\n"
+            f"PersistentKeepalive = 25\n"
+        )
+        _save_vault_secret(
+            f"vpn/{username}",
+            wg_conf,
+            admin,
+            description=f"WireGuard peer config for {username}",
+        )
 
         token_payload = {
             "uid": username,
@@ -337,19 +408,14 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
             "server_endpoint": server_endpoint,
             "server_pubkey": server_pubkey,
             "server_port": settings.VPN_SERVER_PORT,
+            "wg_privkey": wg_privkey,
+            "wg_pubkey": wg_pubkey,
+            "assigned_ip": assigned_ip,
+            "routes": routes,
         }
         provision_token = base64.urlsafe_b64encode(
             json.dumps(token_payload).encode()
         ).decode()
-
-        # Save provision token as a vault secret so the user can retrieve it
-        # from the Secrets UI and run 'anc vpn init <token>' on any machine.
-        _save_vault_secret(
-            f"vpn/{username}",
-            provision_token,
-            admin,
-            description=f"WireGuard VPN provision token for {username}",
-        )
 
         return JSONResponse(status_code=201, content={
             "vpn_uid": vpn_uid,
