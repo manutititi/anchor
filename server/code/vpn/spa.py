@@ -17,7 +17,7 @@ AES key derivation:
               salt=b"spa-v1", context=uid_str.encode())
 
 Anti-replay: the 16-byte nonce must be unique in the vpn_nonces TTL collection
-(TTL 60 s).  Timestamp is also checked for ±2 s skew.
+(TTL 60 s).  Timestamp is also checked for ±30 s skew.
 """
 import base64
 import ipaddress
@@ -45,8 +45,11 @@ TAG_SIZE = 16        # GCM authentication tag
 PLAINTEXT_SIZE = OTP_SIZE + TS_SIZE + PUBKEY_SIZE    # 58
 PACKET_SIZE = UID_SIZE + NONCE_SIZE + PLAINTEXT_SIZE + TAG_SIZE  # 154
 
-# Maximum allowed clock skew in seconds
-TIMESTAMP_WINDOW = 2
+# Maximum allowed clock skew in seconds.
+# 30 s matches TOTP window (pyotp valid_window=1 = ±30 s) and tolerates
+# network/processing latency without being so large as to defeat anti-replay
+# (the nonce TTL collection already handles replay prevention).
+TIMESTAMP_WINDOW = 30
 
 
 # ---------------------------------------------------------------------------

@@ -532,7 +532,7 @@ def vpn_up(
 
     # ── 4. Write restricted tunnel config + bring up ─────────────────────────
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
-        time.sleep(1.0)  # allow knock to propagate to sidecar
+        time.sleep(2.0)  # allow knock packet to be processed by sidecar
 
         _write_wg_conf(
             privkey=privkey,
@@ -549,35 +549,39 @@ def vpn_up(
 
     # ── 5. Wait for handshake ────────────────────────────────────────────────
     with console.status("[bold]Waiting for tunnel handshake…"):
-        ok = _wait_for_handshake(timeout=10.0)
+        ok = _wait_for_handshake(timeout=20.0)
 
     if not ok:
         _wg_quick("down", WG_IFACE, check=False)
         console.print(
-            "[red]Handshake timeout (10 s).[/red]\n"
+            "[red]Handshake timeout (20 s).[/red]\n"
             "Possible causes:\n"
-            "  • knock_host / knock_port misconfigured\n"
-            "  • clock skew > 2 s (OTP window)\n"
-            "  • wrong seed or uid\n"
-            "  • WireGuard UDP port unreachable (check firewall)"
+            "  • Knock was dropped — wrong TOTP code or seed mismatch\n"
+            "  • knock_host / knock_port misconfigured (check vpn.toml)\n"
+            "  • Sidecar could not add peer (check server logs)\n"
+            "  • WireGuard UDP port 51820 unreachable (check firewall)\n"
+            "  • Run: docker exec anc-server tail -f /var/log/... for server logs"
         )
         raise typer.Exit(1)
 
     # ── 6. Authenticate ──────────────────────────────────────────────────────
+    # NOTE: getpass MUST run outside any console.status() context — Rich's
+    # live-rendering overrides terminal line-discipline and the password
+    # prompt becomes invisible / unresponsive.
     internal_url = f"http://{server_vpn_ip}:{server_port}"
     token: Optional[str] = None
 
-    with console.status("[bold]Authenticating…"):
-        creds = load_credentials()
-        existing_token = creds.get("token")
-        if existing_token and _token_valid(existing_token):
-            token = existing_token
-        else:
-            console.print()  # newline before getpass
-            token = _do_login(internal_url, uid)
-            if token:
-                creds["token"] = token
-                save_credentials(creds)
+    creds = load_credentials()
+    existing_token = creds.get("token")
+    if existing_token and _token_valid(existing_token):
+        token = existing_token
+        console.print("[dim]Using cached credentials.[/dim]")
+    else:
+        console.print(f"[bold]Authenticating via VPN tunnel ({internal_url})…[/bold]")
+        token = _do_login(internal_url, uid)
+        if token:
+            creds["token"] = token
+            save_credentials(creds)
 
     if not token:
         _wg_quick("down", WG_IFACE, check=False)

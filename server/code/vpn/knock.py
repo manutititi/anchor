@@ -78,10 +78,27 @@ class KnockProtocol(asyncio.DatagramProtocol):
 
         assigned_ip = uid_to_ip(user_doc["vpn_uid"], self.subnet)
 
-        # Step 5: idempotency — if a lease already exists, drop (no double-add)
+        # Step 5: idempotency — only block re-knock if user has an *active* lease.
+        # Stale onboarding leases (e.g. from a failed previous attempt) are
+        # cleaned up so the user can retry without revoking first.
         leases_col = get_collection("vpn_leases")
-        if leases_col.find_one({"uid": spa.uid}):
-            return
+        existing = leases_col.find_one({"uid": spa.uid})
+        if existing:
+            if existing.get("state") == "active":
+                logger.info("Knock: uid=%s already has active lease, dropping", spa.uid)
+                return
+            # Onboarding lease left over from a previous failed attempt.
+            # Remove the old peer from sidecar and delete the lease so we can
+            # register the fresh pubkey from this new knock.
+            logger.info("Knock: cleaning up stale onboarding lease for uid=%s", spa.uid)
+            try:
+                from integrations.wireguard.provider import WireGuardProvider
+                _client = WireGuardProvider().get_client()
+                if _client and existing.get("pubkey"):
+                    _client.remove_peer(existing["pubkey"])
+            except Exception as exc:
+                logger.warning("Knock: could not remove old peer for uid=%s: %s", spa.uid, exc)
+            leases_col.delete_one({"uid": spa.uid})
 
         # Step 6: register peer on WireGuard sidecar (AllowedIPs = ip/32)
         try:
