@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     VPN_KNOCK_HOST: str = "0.0.0.0"
     VPN_KNOCK_PORT: int = 0
 
+    # Port the Anchor server listens on — embedded in provision tokens so the
+    # client knows where to call /auth/login and /vpn/promote over the tunnel
+    VPN_SERVER_PORT: int = 17017
+
     class Config:
         env_file = ".env"
         extra = "ignore"

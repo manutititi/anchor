@@ -14,6 +14,8 @@ Admin endpoints (admins group only):
   DELETE /vpn/admin/leases/{uid}           — revoke any user's lease
   GET    /vpn/admin/pool                   — pool status (free/leased counts)
 """
+import base64
+import json
 import pyotp
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from auth.middleware import get_current_groups, get_current_user
+from config import settings
 from core.utils import now_tz
 from db.client import get_collection
 from vault.crypto import encrypt
@@ -236,24 +239,66 @@ def admin_pool_status(admin: str = Depends(_require_admin)):
 def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
     """
     Admin: generate a TOTP seed and assign a deterministic vpn_uid for username.
-    The returned provisioning_url can be scanned as a QR code in any TOTP app.
-    The seed_b32 is required for the CLI wizard (anc vpn up first-time setup).
+
+    Returns:
+    - provisioning_url: otpauth:// URI — scan with any TOTP app (Google Auth, Aegis…)
+    - provision_token:  base64url JSON — paste into 'anc vpn init <token>' or the wizard.
+                        Contains everything the client needs; the user never sees vpn_uid.
     """
     user = get_collection("users").find_one({"username": username})
     if not user:
         raise HTTPException(status_code=404, detail=f"User '{username}' not found")
 
     from vpn.otp import assign_vpn_uid, generate_otp_seed
+    from vpn.spa import uid_to_ip
     vpn_uid = assign_vpn_uid(username)
     seed = generate_otp_seed(username)
+
     provisioning_url = pyotp.TOTP(seed).provisioning_uri(
         name=username, issuer_name="Anchor"
     )
 
-    return JSONResponse(status_code=201, content={
+    # Gather server config to embed in the provision token
+    provider = _get_provider()
+    wg_cfg = provider._get_config() or {}
+
+    server_endpoint: str = wg_cfg.get("server_endpoint", "")
+    subnet: str = wg_cfg.get("subnet", "10.13.13.0/24")
+    knock_port: int = int(wg_cfg.get("knock_port", 0))
+    server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1))
+
+    # knock_host = hostname part of the WireGuard server_endpoint
+    knock_host = server_endpoint.split(":")[0] if ":" in server_endpoint else server_endpoint
+
+    # Try to fetch server WireGuard public key from sidecar
+    server_pubkey = ""
+    client = provider.get_client()
+    if client:
+        try:
+            server_pubkey = client.get_status().get("public_key", "")
+        except Exception:
+            pass
+
+    token_payload = {
+        "uid": username,
         "vpn_uid": vpn_uid,
         "seed_b32": seed,
+        "knock_host": knock_host,
+        "knock_port": knock_port,
+        "subnet": subnet,
+        "server_vpn_uid": server_vpn_uid,
+        "server_endpoint": server_endpoint,
+        "server_pubkey": server_pubkey,
+        "server_port": settings.VPN_SERVER_PORT,
+    }
+    provision_token = base64.urlsafe_b64encode(
+        json.dumps(token_payload).encode()
+    ).decode()
+
+    return JSONResponse(status_code=201, content={
+        "vpn_uid": vpn_uid,
         "provisioning_url": provisioning_url,
+        "provision_token": provision_token,
     })
 
 
