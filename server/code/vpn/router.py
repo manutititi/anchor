@@ -344,18 +344,19 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
             "created_at": now.isoformat(),
         })
 
-        # Build full WireGuard client config and save as vault secret for this user
+        # Build WireGuard client config — split-tunnel: only server IP routed through VPN.
+        # No DNS redirection; peers cannot reach each other (each only routes to server /32).
+        server_vpn_ip = str(net.network_address + server_vpn_uid)
         vault_path = f"vpn/{username}"
         wg_conf = (
             f"[Interface]\n"
             f"PrivateKey = {wg_privkey}\n"
             f"Address = {assigned_ip}/32\n"
-            f"DNS = 1.1.1.1\n"
             f"\n"
             f"[Peer]\n"
             f"PublicKey = {server_pubkey}\n"
             f"Endpoint = {server_endpoint}\n"
-            f"AllowedIPs = 0.0.0.0/0\n"
+            f"AllowedIPs = {server_vpn_ip}/32\n"
             f"PersistentKeepalive = 25\n"
         )
         _save_vault_secret(vault_path, wg_conf, username)

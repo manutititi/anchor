@@ -331,13 +331,14 @@ def _write_wg_conf(
     server_pubkey: str,
     server_endpoint: str,
     allowed_ips: str,
-    dns: str = "1.1.1.1",
+    dns: str = "",
 ) -> None:
+    dns_line = f"DNS = {dns}\n" if dns else ""
     WG_CONF.write_text(
         f"[Interface]\n"
         f"PrivateKey = {privkey}\n"
         f"Address = {my_ip}/32\n"
-        f"DNS = {dns}\n"
+        f"{dns_line}"
         f"\n"
         f"[Peer]\n"
         f"PublicKey = {server_pubkey}\n"
@@ -437,12 +438,14 @@ def vpn_up() -> None:
         lease_expires = ""
 
         with console.status("[bold]Bringing up VPN tunnel…"):
+            # Split-tunnel: only route traffic to the server IP through the VPN.
+            # Peers can't see each other; no DNS redirection.
             _write_wg_conf(
                 privkey=privkey,
                 my_ip=assigned_ip,
                 server_pubkey=server_pubkey,
                 server_endpoint=server_endpoint_cfg,
-                allowed_ips="0.0.0.0/0",
+                allowed_ips=f"{server_vpn_ip}/32",
             )
             result = _wg_quick("up", str(WG_CONF), check=False)
             if result.returncode != 0:
