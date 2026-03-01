@@ -238,19 +238,25 @@ def admin_pool_status(admin: str = Depends(_require_admin)):
 @router.post("/admin/users/{username}/otp", status_code=201, tags=["vpn"])
 def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
     """
-    Admin: generate a TOTP seed and assign a deterministic vpn_uid for username.
+    Admin: generate a TOTP seed, assign a deterministic vpn_uid, and pre-generate
+    a WireGuard keypair for the user.
+
+    The WireGuard config (including the private key) is saved as a vault secret at
+    vpn/{username}, accessible only by that user.
 
     Returns:
-    - provisioning_url: otpauth:// URI — scan with any TOTP app (Google Auth, Aegis…)
-    - provision_token:  base64url JSON — paste into 'anc vpn init <token>' or the wizard.
-                        Contains everything the client needs; the user never sees vpn_uid.
+    - provisioning_url: otpauth:// URI — scan with any TOTP app
+    - provision_token:  base64url JSON — paste into 'anc vpn init <token>'
+                        Contains everything the client needs (keys, IPs, endpoints).
     """
+    import ipaddress
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
     user = get_collection("users").find_one({"username": username})
     if not user:
         raise HTTPException(status_code=404, detail=f"User '{username}' not found")
 
     from vpn.otp import assign_vpn_uid, generate_otp_seed
-    from vpn.spa import uid_to_ip
     vpn_uid = assign_vpn_uid(username)
     seed = generate_otp_seed(username)
 
@@ -258,16 +264,14 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
         name=username, issuer_name="Anchor"
     )
 
-    # Gather server config to embed in the provision token
+    # Gather server config
     provider = _get_provider()
     wg_cfg = provider._get_config() or {}
 
     server_endpoint: str = wg_cfg.get("server_endpoint", "")
     subnet: str = wg_cfg.get("subnet", "10.13.13.0/24")
-    knock_port: int = int(wg_cfg.get("knock_port", 0))
-    server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1))
-
-    # knock_host = hostname part of the WireGuard server_endpoint
+    knock_port: int = int(wg_cfg.get("knock_port", 0) or 0)
+    server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1) or 1)
     knock_host = server_endpoint.split(":")[0] if ":" in server_endpoint else server_endpoint
 
     # Try to fetch server WireGuard public key from sidecar
@@ -278,6 +282,31 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
             server_pubkey = client.get_status().get("public_key", "")
         except Exception:
             pass
+
+    # Generate WireGuard Curve25519 keypair for this user
+    wg_key = X25519PrivateKey.generate()
+    wg_privkey = base64.b64encode(wg_key.private_bytes_raw()).decode()
+    wg_pubkey = base64.b64encode(wg_key.public_key().public_bytes_raw()).decode()
+
+    # Compute deterministic IP (no DB needed)
+    net = ipaddress.IPv4Network(subnet, strict=False)
+    assigned_ip = str(net.network_address + vpn_uid)
+
+    # Build full WireGuard client config and save as vault secret for this user
+    vault_path = f"vpn/{username}"
+    wg_conf = (
+        f"[Interface]\n"
+        f"PrivateKey = {wg_privkey}\n"
+        f"Address = {assigned_ip}/32\n"
+        f"DNS = 1.1.1.1\n"
+        f"\n"
+        f"[Peer]\n"
+        f"PublicKey = {server_pubkey}\n"
+        f"Endpoint = {server_endpoint}\n"
+        f"AllowedIPs = 0.0.0.0/0\n"
+        f"PersistentKeepalive = 25\n"
+    )
+    _save_vault_secret(vault_path, wg_conf, username)
 
     token_payload = {
         "uid": username,
@@ -290,6 +319,10 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
         "server_endpoint": server_endpoint,
         "server_pubkey": server_pubkey,
         "server_port": settings.VPN_SERVER_PORT,
+        "wg_privkey": wg_privkey,
+        "wg_pubkey": wg_pubkey,
+        "assigned_ip": assigned_ip,
+        "vault_path": vault_path,
     }
     provision_token = base64.urlsafe_b64encode(
         json.dumps(token_payload).encode()

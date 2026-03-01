@@ -16,18 +16,24 @@ from vault.crypto import decrypt, encrypt
 
 def assign_vpn_uid(username: str) -> int:
     """
-    Atomically assign the next available VPN UID to username.
-    Uses a MongoDB counter document so concurrent requests are safe.
-    Returns the assigned integer UID (≥ 2; UID=1 is the WireGuard server).
+    Return the existing VPN UID for username, or atomically assign the next one.
+    UID=1 is reserved for the WireGuard server; user UIDs start at 2.
     """
+    # Reuse existing uid on re-provision so the IP stays stable
+    user_doc = get_collection("users").find_one({"username": username}, {"vpn_uid": 1})
+    if user_doc and user_doc.get("vpn_uid"):
+        return int(user_doc["vpn_uid"])
+
+    # Atomically get the next counter value
+    from pymongo import ReturnDocument
     counter_doc = get_collection("vpn_uid_counter").find_one_and_update(
         {"_id": "vpn_uid"},
         {"$inc": {"seq": 1}},
         upsert=True,
-        return_document=True,
+        return_document=ReturnDocument.AFTER,
     )
-    # seq starts at 0 on first upsert; +1 → first user gets UID=2
-    uid = counter_doc["seq"] + 1
+    # seq starts at 0 before the first increment; +1 → first user gets UID=2
+    uid = int(counter_doc["seq"]) + 1
 
     get_collection("users").update_one(
         {"username": username},
