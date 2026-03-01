@@ -386,24 +386,25 @@ def vpn_init(
 @app.command("up")
 def vpn_up() -> None:
     """
-    Bring up the WireGuard VPN tunnel via SPA knock flow.
+    Bring up the WireGuard VPN tunnel.
 
-    First run: interactive wizard collects uid, TOTP seed, knock host/port,
-    subnet, and saves to ~/.config/anchor/vpn.toml (0600).
-    Subsequent runs: reads saved config and goes straight to tunnel setup.
+    Two modes depending on how the config was created:
+
+    PRE-PROVISIONED (anc vpn init <token>): The admin pre-generated the keypair
+    and registered the peer. Connect directly — no knock or promote needed.
+
+    SPA KNOCK (manual setup): Send a UDP knock, bring up a restricted onboarding
+    tunnel, authenticate, then promote to the full tunnel.
     """
     _check_vpn_deps()
-    import pyotp
 
     # ── 1. Read / create config ──────────────────────────────────────────────
     cfg = _load_vpn_config()
     if not cfg:
+        import pyotp  # noqa: F401 — ensure deps available before wizard
         cfg = _run_wizard()
 
     uid: str = cfg["uid"]
-    seed_b32: str = cfg["seed_b32"]
-    knock_host: str = cfg["knock_host"]
-    knock_port: int = int(cfg.get("knock_port", 62201))
     subnet: str = cfg.get("subnet", "10.8.0.0/24")
     server_vpn_uid: int = int(cfg.get("server_vpn_uid", 1))
     server_port: int = int(cfg.get("server_port", 17017))
@@ -416,29 +417,76 @@ def vpn_up() -> None:
     # IP: prefer pre-computed assigned_ip from token, then derive from vpn_uid
     if cfg.get("assigned_ip"):
         my_ip_str = cfg["assigned_ip"]
-    elif my_vpn_uid == 0:
+    elif my_vpn_uid > 0:
+        my_ip_str = _uid_to_ip(my_vpn_uid, subnet)
+    else:
         console.print(
-            "[yellow]vpn_uid not set — using placeholder IP for onboarding.[/yellow]\n"
-            "If handshake times out, ask the admin for 'anc vpn init <token>'."
+            "[yellow]vpn_uid not set — using placeholder IP.[/yellow]\n"
+            "Ask the admin for 'anc vpn init <token>'."
         )
         my_ip_str = _uid_to_ip(2, subnet)
-    else:
-        my_ip_str = _uid_to_ip(my_vpn_uid, subnet)
 
-    # ── 2. Get or generate WireGuard keypair ─────────────────────────────────
-    # Token-provisioned setup: server pre-generated the keypair; use it.
-    # Manual/legacy setup: generate via wg genkey.
+    # ── PRE-PROVISIONED PATH ─────────────────────────────────────────────────
+    # When the server pre-generated the keypair (token contains wg_privkey),
+    # the peer is already registered on the sidecar with state=active.
+    # Skip knock + onboarding + promote — just bring up the full tunnel.
     if cfg.get("wg_privkey") and cfg.get("wg_pubkey"):
         privkey = cfg["wg_privkey"]
-        pubkey = cfg["wg_pubkey"]
-    else:
-        with console.status("[bold]Generating keypair…"):
-            privkey, pubkey = _wg_genkey()
+        server_pubkey = cfg.get("server_pubkey", server_pubkey_cfg)
+        assigned_ip = cfg.get("assigned_ip", my_ip_str)
+        lease_expires = ""
 
-    # ── 3. Generate OTP ──────────────────────────────────────────────────────
+        with console.status("[bold]Bringing up VPN tunnel…"):
+            _write_wg_conf(
+                privkey=privkey,
+                my_ip=assigned_ip,
+                server_pubkey=server_pubkey,
+                server_endpoint=server_endpoint_cfg,
+                allowed_ips="0.0.0.0/0",
+            )
+            result = _wg_quick("up", str(WG_CONF), check=False)
+            if result.returncode != 0:
+                console.print(f"[red]wg-quick up failed:[/red]\n{result.stderr.strip()}")
+                raise typer.Exit(1)
+
+        with console.status("[bold]Waiting for handshake…"):
+            ok = _wait_for_handshake(timeout=15.0)
+
+        if not ok:
+            _wg_quick("down", WG_IFACE, check=False)
+            console.print(
+                "[red]Handshake timeout (15 s).[/red]\n"
+                "Possible causes:\n"
+                "  • server_endpoint misconfigured (check host:port)\n"
+                "  • WireGuard UDP port unreachable (check firewall)\n"
+                "  • Peer was revoked — ask admin to re-provision"
+            )
+            raise typer.Exit(1)
+
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="dim")
+        table.add_column()
+        table.add_row("IP address", f"[green]{assigned_ip}[/green]")
+        table.add_row("Server endpoint", server_endpoint_cfg)
+        table.add_row("Server pubkey", server_pubkey[:16] + "…")
+        table.add_row("Interface", WG_IFACE)
+        console.print(Panel(table, title="[bold green]VPN Connected", border_style="green"))
+        return
+
+    # ── SPA KNOCK PATH ───────────────────────────────────────────────────────
+    # Manual / knock-based setup: uses TOTP + SPA to register peer dynamically.
+    import pyotp
+
+    seed_b32: str = cfg["seed_b32"]
+    knock_host: str = cfg["knock_host"]
+    knock_port: int = int(cfg.get("knock_port", 62201))
+
+    # ── 2. Generate keypair ──────────────────────────────────────────────────
+    with console.status("[bold]Generating keypair…"):
+        privkey, pubkey = _wg_genkey()
+
+    # ── 3. Generate OTP and send knock ──────────────────────────────────────
     otp_str = pyotp.TOTP(seed_b32).now()
-
-    # ── 4. Build + send SPA packet ───────────────────────────────────────────
     pkt = _build_spa_packet(uid, otp_str, pubkey, seed_b32)
 
     with console.status(f"[bold]Knocking {knock_host}:{knock_port}…"):
@@ -450,12 +498,7 @@ def vpn_up() -> None:
             console.print(f"[red]UDP send failed:[/red] {exc}")
             raise typer.Exit(1)
 
-    # ── 5. Write restricted tunnel config + bring up ─────────────────────────
-    #   Onboarding mode: AllowedIPs = server_ip/32 so only the server is
-    #   reachable through the tunnel (needed to call /vpn/promote).
-    #   Client IP = uid_to_ip(my_vpn_uid) must match what the sidecar set.
-    #   Pause 1 s to let the knock propagate before WG tries to handshake.
-
+    # ── 4. Write restricted tunnel config + bring up ─────────────────────────
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
         time.sleep(1.0)  # allow knock to propagate to sidecar
 
@@ -472,7 +515,7 @@ def vpn_up() -> None:
             console.print(f"[red]wg-quick up failed:[/red]\n{result.stderr.strip()}")
             raise typer.Exit(1)
 
-    # ── 6. Wait for handshake ────────────────────────────────────────────────
+    # ── 5. Wait for handshake ────────────────────────────────────────────────
     with console.status("[bold]Waiting for tunnel handshake…"):
         ok = _wait_for_handshake(timeout=10.0)
 
@@ -488,7 +531,7 @@ def vpn_up() -> None:
         )
         raise typer.Exit(1)
 
-    # ── 7. Authenticate ──────────────────────────────────────────────────────
+    # ── 6. Authenticate ──────────────────────────────────────────────────────
     internal_url = f"http://{server_vpn_ip}:{server_port}"
     token: Optional[str] = None
 
@@ -509,7 +552,7 @@ def vpn_up() -> None:
         console.print("[red]Authentication failed. Tunnel closed.[/red]")
         raise typer.Exit(1)
 
-    # ── 8. POST /vpn/promote ─────────────────────────────────────────────────
+    # ── 7. POST /vpn/promote ─────────────────────────────────────────────────
     with console.status("[bold]Promoting to full tunnel…"):
         try:
             internal_client = AnchorClient(server_url=internal_url, token=token)
@@ -527,13 +570,13 @@ def vpn_up() -> None:
 
         promote_data = resp.json()
 
-    # ── 9. Rewrite config + hot-reload ───────────────────────────────────────
+    # ── 8. Rewrite config + hot-reload ───────────────────────────────────────
     assigned_ip: str = promote_data["assigned_ip"]
     server_pubkey: str = promote_data["server_pubkey"]
     server_endpoint: str = promote_data["server_endpoint"]
     lease_expires: str = promote_data["lease_expires"]
 
-    # Update cached values for next run (resolve vpn_uid from real IP if it was unknown)
+    # Update cached values for next run
     cfg["server_pubkey"] = server_pubkey
     cfg["server_endpoint"] = server_endpoint
     if cfg.get("vpn_uid", 0) == 0:
@@ -558,7 +601,7 @@ def vpn_up() -> None:
     if syncconf.returncode != 0:
         console.print(f"[yellow]wg syncconf warning:[/yellow] {syncconf.stderr.strip()}")
 
-    # ── 10. Show summary panel ───────────────────────────────────────────────
+    # ── 9. Show summary panel ────────────────────────────────────────────────
     table = Table.grid(padding=(0, 2))
     table.add_column(style="dim")
     table.add_column()
