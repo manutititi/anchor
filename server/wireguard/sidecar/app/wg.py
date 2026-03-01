@@ -47,13 +47,36 @@ def _run(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------------------
 
 def add_peer(pubkey: str, allowed_ip: str) -> None:
-    """Add or update a peer on the live interface (zero downtime)."""
+    """Add or update a peer on the live interface (zero downtime).
+
+    Also ensures the kernel has a host route for the peer IP via the WireGuard
+    interface so the server can route reply packets back through the tunnel.
+    Without this, servers configured with Address=/32 (instead of /24) would
+    have no route for dynamically added peer IPs and replies would be dropped.
+    """
     _run(["wg", "set", INTERFACE, "peer", pubkey, "allowed-ips", f"{allowed_ip}/32"])
+    # Add host route (idempotent: ignore errors if it already exists)
+    _run(["ip", "route", "add", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
 
 
 def remove_peer(pubkey: str) -> None:
-    """Remove a peer from the live interface."""
+    """Remove a peer from the live interface and clean up its IP route."""
+    # Retrieve the allowed IP before removing the peer
+    allowed_ip: str | None = None
+    try:
+        dump = show_dump()
+        for p in dump.peers:
+            if p.public_key == pubkey:
+                # allowed_ips may be "10.x.x.x/32" — extract the host part
+                allowed_ip = p.allowed_ips.split("/")[0]
+                break
+    except Exception:
+        pass
+
     _run(["wg", "set", INTERFACE, "peer", pubkey, "remove"])
+
+    if allowed_ip:
+        _run(["ip", "route", "del", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
 
 
 @dataclass
