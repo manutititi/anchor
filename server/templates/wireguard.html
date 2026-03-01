@@ -201,29 +201,28 @@
             <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
               <tr>
                 <th class="px-5 py-3 text-left">User</th>
+                <th class="px-5 py-3 text-left">State</th>
                 <th class="px-5 py-3 text-left">Assigned IP</th>
-                <th class="px-5 py-3 text-left">Peer name</th>
                 <th class="px-5 py-3 text-left">Expires at</th>
-                <th class="px-5 py-3 text-left">Vault secret</th>
                 <th class="px-5 py-3 text-left"></th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
               <template x-if="leases.length === 0">
                 <tr>
-                  <td colspan="6" class="px-5 py-6 text-center text-gray-400 text-sm">No active leases</td>
+                  <td colspan="5" class="px-5 py-6 text-center text-gray-400 text-sm">No active leases</td>
                 </tr>
               </template>
               <template x-for="l in leases" :key="l.uid">
                 <tr class="hover:bg-gray-50">
                   <td class="px-5 py-3 font-medium text-gray-800" x-text="l.uid"></td>
-                  <td class="px-5 py-3 font-mono text-gray-700" x-text="l.assigned_ip"></td>
-                  <td class="px-5 py-3 text-gray-600" x-text="l.peer_name"></td>
-                  <td class="px-5 py-3 text-gray-500 text-xs" x-text="l.expires_at"></td>
                   <td class="px-5 py-3">
-                    <span class="font-mono text-xs text-purple-700 bg-purple-50 px-2 py-0.5 rounded"
-                          x-text="l.vault_path"></span>
+                    <span :class="l.state === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                          class="text-xs font-medium px-2 py-0.5 rounded-full"
+                          x-text="l.state || 'active'"></span>
                   </td>
+                  <td class="px-5 py-3 font-mono text-gray-700" x-text="l.assigned_ip"></td>
+                  <td class="px-5 py-3 text-gray-500 text-xs" x-text="l.expires_at"></td>
                   <td class="px-5 py-3 text-right">
                     <button @click="revokeAdmin(l.uid)"
                             class="text-xs text-red-600 hover:text-red-800 font-medium">
@@ -237,6 +236,155 @@
         </div>
       </div>
 
+      <!-- VPN Users card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🔑</span>
+            <div>
+              <h2 class="text-lg font-semibold text-gray-800">VPN Access — Users</h2>
+              <p class="text-xs text-gray-500">Generate provision tokens for the SPA onboarding flow</p>
+            </div>
+          </div>
+          <button @click="loadVpnUsers()"
+                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+              <tr>
+                <th class="px-5 py-3 text-left">User</th>
+                <th class="px-5 py-3 text-left">VPN UID</th>
+                <th class="px-5 py-3 text-left">OTP Seed</th>
+                <th class="px-5 py-3 text-left"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <template x-if="vpnUsers.length === 0">
+                <tr>
+                  <td colspan="4" class="px-5 py-6 text-center text-gray-400 text-sm">No users found</td>
+                </tr>
+              </template>
+              <template x-for="u in vpnUsers" :key="u.username">
+                <tr class="hover:bg-gray-50">
+                  <td class="px-5 py-3 font-medium text-gray-800">
+                    <div x-text="u.username"></div>
+                    <div class="text-xs text-gray-400" x-text="u.groups.join(', ')"></div>
+                  </td>
+                  <td class="px-5 py-3">
+                    <template x-if="u.vpn_uid">
+                      <span class="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded"
+                            x-text="'UID ' + u.vpn_uid"></span>
+                    </template>
+                    <template x-if="!u.vpn_uid">
+                      <span class="text-gray-400 text-xs">—</span>
+                    </template>
+                  </td>
+                  <td class="px-5 py-3">
+                    <template x-if="u.has_vpn_seed">
+                      <span class="text-xs text-green-700 font-medium">✔ Configured</span>
+                    </template>
+                    <template x-if="!u.has_vpn_seed">
+                      <span class="text-xs text-gray-400">—</span>
+                    </template>
+                  </td>
+                  <td class="px-5 py-3 text-right">
+                    <div class="flex items-center justify-end gap-3">
+                      <button @click="provisionUser(u.username)"
+                              :disabled="provisioningUser === u.username"
+                              class="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
+                              x-text="u.has_vpn_seed ? 'Re-provision' : 'Provision'">
+                      </button>
+                      <template x-if="u.has_vpn_seed">
+                        <button @click="revokeUserOtp(u.username)"
+                                class="text-xs text-red-600 hover:text-red-800 font-medium">
+                          Revoke OTP
+                        </button>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </template>
+
+  <!-- ============================================================ -->
+  <!-- PROVISION TOKEN MODAL                                         -->
+  <!-- ============================================================ -->
+  <template x-if="provModal">
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+         @click.self="provModal = null">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg" @click.stop>
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h3 class="text-base font-semibold text-gray-800">Provision token</h3>
+            <p class="text-xs text-gray-500 mt-0.5">
+              For user <span class="font-medium text-gray-700" x-text="provModal.username"></span>
+              <template x-if="provModal.vpn_uid">
+                <span> — VPN UID <span class="font-mono" x-text="provModal.vpn_uid"></span></span>
+              </template>
+            </p>
+          </div>
+          <button @click="provModal = null" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        </div>
+        <div class="px-6 py-5 space-y-5">
+
+          <!-- Step 1: provision_token -->
+          <div>
+            <p class="text-xs font-medium text-gray-600 mb-2">
+              1. Send this token to the user. They paste it into:
+              <code class="bg-gray-100 px-1 rounded">anc vpn init &lt;token&gt;</code>
+            </p>
+            <div class="relative">
+              <textarea
+                x-text="provModal.token"
+                readonly
+                rows="4"
+                class="w-full font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none select-all"
+                @click="$el.select()"
+              ></textarea>
+              <button @click="copyToken(provModal.token)"
+                      class="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-600"
+                      x-text="tokenCopied ? '✔ Copied' : 'Copy'">
+              </button>
+            </div>
+          </div>
+
+          <!-- Step 2: TOTP provisioning URL -->
+          <div>
+            <p class="text-xs font-medium text-gray-600 mb-2">
+              2. Send this TOTP URL so they can add it to their authenticator app (Google Authenticator, Aegis, Bitwarden…):
+            </p>
+            <div class="relative">
+              <input type="text"
+                     :value="provModal.provisioning_url"
+                     readonly
+                     class="w-full font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none"
+                     @click="$el.select()" />
+              <button @click="copyToken(provModal.provisioning_url)"
+                      class="absolute top-1/2 -translate-y-1/2 right-2 text-xs px-2 py-1 rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-600"
+                      x-text="tokenCopied ? '✔ Copied' : 'Copy'">
+              </button>
+            </div>
+          </div>
+
+          <p class="text-xs text-gray-400">
+            The token contains the TOTP seed, VPN UID, server endpoint, knock port, and WireGuard public key.
+            It is valid until the OTP seed is revoked.
+          </p>
+        </div>
+        <div class="px-6 pb-5">
+          <button @click="provModal = null"
+                  class="w-full py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   </template>
 
@@ -331,6 +479,10 @@ function vpnPage() {
     testResult: null,
     pool: null,
     leases: [],
+    vpnUsers: [],
+    provisioningUser: null,
+    provModal: null,
+    tokenCopied: false,
 
     // User state
     userLease: null,
@@ -346,7 +498,7 @@ function vpnPage() {
       } catch { this.isAdmin = false; }
 
       if (this.isAdmin) {
-        await Promise.all([this.loadCfg(), this.loadPool(), this.loadLeases()]);
+        await Promise.all([this.loadCfg(), this.loadPool(), this.loadLeases(), this.loadVpnUsers()]);
       } else {
         await this.loadUserLease();
       }
@@ -493,6 +645,60 @@ function vpnPage() {
         this.actionOk = false;
         this.actionMsg = 'Network error: ' + e.message;
       }
+    },
+
+    // ---- Admin: VPN users ----
+    async loadVpnUsers() {
+      try {
+        const res = await fetch('/admin/users', {
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        if (res.ok) this.vpnUsers = await res.json();
+      } catch { /* ignore */ }
+    },
+
+    async provisionUser(username) {
+      this.provisioningUser = username;
+      try {
+        const res = await fetch('/vpn/admin/users/' + encodeURIComponent(username) + '/otp', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.provModal = {
+            username,
+            vpn_uid: data.vpn_uid,
+            token: data.provision_token,
+            provisioning_url: data.provisioning_url,
+          };
+          this.tokenCopied = false;
+          await this.loadVpnUsers();
+        } else {
+          alert('Provisioning failed: ' + (data.detail || res.status));
+        }
+      } catch (e) {
+        alert('Network error: ' + e.message);
+      } finally {
+        this.provisioningUser = null;
+      }
+    },
+
+    async revokeUserOtp(username) {
+      if (!confirm(`Revoke VPN OTP seed for '${username}'? They will not be able to connect until re-provisioned.`)) return;
+      const res = await fetch('/vpn/admin/users/' + encodeURIComponent(username) + '/otp', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + this.token() },
+      });
+      await this.loadVpnUsers();
+    },
+
+    async copyToken(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this.tokenCopied = true;
+        setTimeout(() => { this.tokenCopied = false; }, 2000);
+      } catch { /* fallback: user can select manually */ }
     },
   };
 }

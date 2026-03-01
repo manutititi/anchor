@@ -86,7 +86,7 @@ class UserCreate(BaseModel):
 
 @router.get("/users", tags=["admin"])
 def admin_list_users(admin: str = Depends(_require_admin)):
-    """List all local users (password hashes excluded)."""
+    """List all local users (password hashes and OTP seeds excluded)."""
     from db.client import get_collection
     col = get_collection("users")
     result = []
@@ -95,6 +95,8 @@ def admin_list_users(admin: str = Depends(_require_admin)):
             "username": doc.get("username", ""),
             "groups": doc.get("groups", []),
             "created_at": doc.get("created_at", ""),
+            "vpn_uid": doc.get("vpn_uid"),
+            "has_vpn_seed": bool(doc.get("otp_seed_enc")),
         })
     return JSONResponse(content=result)
 
