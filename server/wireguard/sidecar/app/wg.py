@@ -5,10 +5,18 @@ Every function wraps a single `wg` invocation via subprocess.
 Errors are raised as WireGuardError so the router can translate them to HTTP 500.
 """
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 
 INTERFACE = "wg0"
+
+# IPs that must never be added or removed by the sidecar.
+# Populated from WG_PROTECTED_IPS env var (comma-separated).
+# Used to protect statically configured peers (e.g. the admin backdoor peer1).
+_PROTECTED_IPS: frozenset = frozenset(
+    ip.strip() for ip in os.environ.get("WG_PROTECTED_IPS", "").split(",") if ip.strip()
+)
 
 
 class WireGuardError(Exception):
@@ -54,6 +62,12 @@ def add_peer(pubkey: str, allowed_ip: str) -> None:
     Without this, servers configured with Address=/32 (instead of /24) would
     have no route for dynamically added peer IPs and replies would be dropped.
     """
+    if allowed_ip in _PROTECTED_IPS:
+        raise WireGuardError(
+            f"wg set {INTERFACE} peer ... allowed-ips {allowed_ip}/32",
+            0,
+            f"IP {allowed_ip} is protected and cannot be managed by the sidecar",
+        )
     _run(["wg", "set", INTERFACE, "peer", pubkey, "allowed-ips", f"{allowed_ip}/32"])
     # Add host route (idempotent: ignore errors if it already exists)
     _run(["ip", "route", "add", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
@@ -72,6 +86,13 @@ def remove_peer(pubkey: str) -> None:
                 break
     except Exception:
         pass
+
+    if allowed_ip and allowed_ip in _PROTECTED_IPS:
+        raise WireGuardError(
+            f"wg set {INTERFACE} peer {pubkey[:8]}... remove",
+            0,
+            f"IP {allowed_ip} is protected and cannot be removed by the sidecar",
+        )
 
     _run(["wg", "set", INTERFACE, "peer", pubkey, "remove"])
 
