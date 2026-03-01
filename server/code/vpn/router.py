@@ -51,7 +51,7 @@ def _get_provider():
     return WireGuardProvider()
 
 
-def _save_vault_secret(path: str, plaintext: str, uid: str) -> None:
+def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "") -> None:
     """Upsert a vault secret using the same flat schema as vault/router.py."""
     col = get_collection("ref")
     encrypted = encrypt(plaintext, path)
@@ -74,7 +74,7 @@ def _save_vault_secret(path: str, plaintext: str, uid: str) -> None:
         col.insert_one({
             "type": "secret",
             "id": path,
-            "description": f"WireGuard VPN config for {uid}",
+            "description": description or f"WireGuard VPN config for {uid}",
             "encoding": encrypted["encoding"],
             "value": encrypted["value"],
             "iv": encrypted["iv"],
@@ -341,6 +341,15 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
         provision_token = base64.urlsafe_b64encode(
             json.dumps(token_payload).encode()
         ).decode()
+
+        # Save provision token as a vault secret so the user can retrieve it
+        # from the Secrets UI and run 'anc vpn init <token>' on any machine.
+        _save_vault_secret(
+            f"vpn/{username}",
+            provision_token,
+            admin,
+            description=f"WireGuard VPN provision token for {username}",
+        )
 
         return JSONResponse(status_code=201, content={
             "vpn_uid": vpn_uid,
