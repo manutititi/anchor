@@ -97,6 +97,10 @@ def admin_list_users(admin: str = Depends(_require_admin)):
             "created_at": doc.get("created_at", ""),
             "vpn_uid": doc.get("vpn_uid"),
             "has_vpn_seed": bool(doc.get("otp_seed_enc")),
+            # Per-user VPN settings (None = use global defaults)
+            "vpn_lease_minutes": doc.get("vpn_lease_minutes"),
+            "vpn_blackout_start": doc.get("vpn_blackout_start"),
+            "vpn_blackout_end": doc.get("vpn_blackout_end"),
         })
     return JSONResponse(content=result)
 

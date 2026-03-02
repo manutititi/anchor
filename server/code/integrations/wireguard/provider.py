@@ -76,6 +76,27 @@ class WireGuardProvider(IntegrationProvider):
         cfg = self._get_config()
         return int(cfg.get("lease_hours", 8)) if cfg else 8
 
+    def get_effective_lease_seconds(self, user_doc: dict | None = None) -> int | None:
+        """
+        Return the lease duration in seconds for a given user, or None for infinite.
+
+        Resolution order:
+          1. user_doc["vpn_lease_minutes"]:
+               None  → fall through to global
+               0     → infinite
+               N     → N minutes
+          2. global lease_hours:
+               0     → infinite
+               N     → N * 3600 seconds
+        """
+        if user_doc is not None:
+            user_minutes = user_doc.get("vpn_lease_minutes")
+            if user_minutes is not None:
+                return None if user_minutes == 0 else int(user_minutes) * 60
+
+        hours = self.get_lease_hours()
+        return None if hours == 0 else hours * 3600
+
     def get_subnet(self) -> str:
         cfg = self._get_config()
         return cfg.get("subnet", "10.13.13.0/24") if cfg else "10.13.13.0/24"

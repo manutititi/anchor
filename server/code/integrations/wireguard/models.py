@@ -6,6 +6,7 @@ class WireGuardConfig(BaseModel):
     api_key: str = ""
     subnet: str = "10.13.13.0/24"
     server_endpoint: str = ""
+    # 0 = infinite (never expires), positive = hours, default 8h
     lease_hours: int = 8
     enabled: bool = True
     # SPA knock listener settings (0 = listener disabled)
@@ -22,8 +23,9 @@ class WireGuardConfig(BaseModel):
     @field_validator("lease_hours")
     @classmethod
     def validate_lease_hours(cls, v: int) -> int:
-        if not (1 <= v <= 168):
-            raise ValueError("lease_hours must be between 1 and 168 (1 week max)")
+        # 0 = infinite; positive values are hours (no hard upper limit enforced here)
+        if v < 0:
+            raise ValueError("lease_hours must be 0 (infinite) or a positive number of hours")
         return v
 
     # Networks routed through the tunnel (AllowedIPs in client config).

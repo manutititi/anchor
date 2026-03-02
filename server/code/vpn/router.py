@@ -8,19 +8,23 @@ User endpoints (any authenticated user):
   DELETE /vpn/lease            — revoke own lease
 
 Admin endpoints (admins group only):
-  POST   /vpn/admin/users/{username}/otp   — generate OTP seed + assign vpn_uid
-  DELETE /vpn/admin/users/{username}/otp   — revoke OTP seed + vpn_uid
-  GET    /vpn/admin/leases                 — list all active leases
-  DELETE /vpn/admin/leases/{uid}           — revoke any user's lease
-  GET    /vpn/admin/pool                   — pool status (free/leased counts)
+  POST   /vpn/admin/users/{username}/otp      — generate OTP seed + assign vpn_uid
+  DELETE /vpn/admin/users/{username}/otp      — revoke OTP seed + vpn_uid
+  PATCH  /vpn/admin/users/{username}/settings — per-user lease duration + blackout window
+  GET    /vpn/admin/leases                    — list all active leases
+  DELETE /vpn/admin/leases/{uid}              — revoke any user's lease
+  GET    /vpn/admin/pool                      — pool status (free/leased counts)
 """
 import base64
 import json
 import pyotp
 from datetime import datetime, timedelta, timezone
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from auth.middleware import get_current_groups, get_current_user
 from config import settings
@@ -111,6 +115,15 @@ def _do_revoke(lease: dict) -> None:
     get_collection("vpn_leases").delete_one({"uid": lease["uid"]})
 
 
+def _make_expires_at(lease_seconds: int | None) -> str | None:
+    """
+    Return an ISO-format UTC datetime for the given duration, or None for infinite.
+    """
+    if lease_seconds is None:
+        return None
+    return (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
+
+
 # ---------------------------------------------------------------------------
 # User endpoints
 # ---------------------------------------------------------------------------
@@ -165,9 +178,10 @@ def request_vpn(
         server_pubkey = ""
 
     server_endpoint = provider.get_server_endpoint()
-    lease_hours = provider.get_lease_hours()
+    user_doc = get_collection("users").find_one({"username": current_user}) or {}
+    lease_secs = provider.get_effective_lease_seconds(user_doc)
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=lease_hours)
+    expires_at_iso = _make_expires_at(lease_secs)
     vault_path = f"vpn/{current_user}"
 
     dns_servers = provider.get_dns()
@@ -191,7 +205,7 @@ def request_vpn(
         "pubkey": body.pubkey,
         "assigned_ip": assigned_ip,
         "peer_name": peer_name,
-        "expires_at": expires_at.isoformat(),
+        "expires_at": expires_at_iso,
         "created_at": now.isoformat(),
         "vault_path": vault_path,
     })
@@ -200,7 +214,7 @@ def request_vpn(
         "assigned_ip": assigned_ip,
         "server_pubkey": server_pubkey,
         "server_endpoint": server_endpoint,
-        "lease_expires": expires_at.isoformat(),
+        "lease_expires": expires_at_iso,
         "vault_path": vault_path,
         "wg_conf_partial": wg_conf,
     })
@@ -424,10 +438,11 @@ def admin_generate_otp(username: str, request: Request, admin: str = Depends(_re
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=f"Sidecar error registering peer: {exc}")
 
-        # Create active lease
-        lease_hours = provider.get_lease_hours()
+        # Create active lease — respect per-user duration if set
+        user_doc = get_collection("users").find_one({"username": username}) or {}
+        lease_secs = provider.get_effective_lease_seconds(user_doc)
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(hours=lease_hours)
+        expires_at_iso = _make_expires_at(lease_secs)
         leases_col.insert_one({
             "uid": username,
             "pubkey": wg_pubkey,
@@ -435,7 +450,7 @@ def admin_generate_otp(username: str, request: Request, admin: str = Depends(_re
             "peer_name": username,
             "state": "active",
             "server_pubkey": server_pubkey,
-            "expires_at": expires_at.isoformat(),
+            "expires_at": expires_at_iso,
             "created_at": now.isoformat(),
             "vault_path": f"vpn/{username}",
         })
@@ -507,8 +522,8 @@ def admin_generate_otp(username: str, request: Request, admin: str = Depends(_re
             extra={
                 "assigned_ip": assigned_ip,
                 "vpn_uid": vpn_uid,
-                "lease_hours": lease_hours,
-                "expires_at": expires_at.isoformat(),
+                "lease_seconds": lease_secs,
+                "expires_at": expires_at_iso,
                 "provisioned_by": admin,
             },
         ).save_default()
@@ -543,6 +558,83 @@ def admin_revoke_otp(username: str, admin: str = Depends(_require_admin)):
     return JSONResponse(content={"detail": f"OTP and VPN access revoked for '{username}'"})
 
 
+class VPNUserSettings(BaseModel):
+    vpn_lease_minutes: Optional[int] = None  # None=global, 0=infinite, N=minutes
+    vpn_blackout_start: Optional[str] = None  # "HH:MM" UTC, None=disabled
+    vpn_blackout_end: Optional[str] = None    # "HH:MM" UTC, None=disabled
+
+
+@router.patch("/admin/users/{username}/settings", tags=["vpn"])
+def admin_update_vpn_settings(
+    username: str,
+    body: VPNUserSettings,
+    admin: str = Depends(_require_admin),
+):
+    """
+    Admin: configure per-user VPN lease duration and/or blackout window.
+
+    vpn_lease_minutes:
+      null  → use global lease_hours from integration config
+      0     → infinite (never expires)
+      N     → N minutes
+
+    vpn_blackout_start / vpn_blackout_end:
+      Both must be set together (HH:MM, UTC). Set both to null to disable.
+      Cross-midnight ranges supported (e.g. start=20:00, end=08:00).
+    """
+    import re
+
+    users_col = get_collection("users")
+    user = users_col.find_one({"username": username})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+
+    if body.vpn_lease_minutes is not None and body.vpn_lease_minutes < 0:
+        raise HTTPException(status_code=422, detail="vpn_lease_minutes must be 0 (infinite) or positive")
+
+    hhmm = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+    blackout_start = body.vpn_blackout_start
+    blackout_end = body.vpn_blackout_end
+
+    if (blackout_start is None) != (blackout_end is None):
+        raise HTTPException(status_code=422, detail="Both vpn_blackout_start and vpn_blackout_end must be set together")
+    if blackout_start and not hhmm.match(blackout_start):
+        raise HTTPException(status_code=422, detail=f"Invalid vpn_blackout_start: '{blackout_start}' (use HH:MM)")
+    if blackout_end and not hhmm.match(blackout_end):
+        raise HTTPException(status_code=422, detail=f"Invalid vpn_blackout_end: '{blackout_end}' (use HH:MM)")
+
+    update: dict = {}
+    unset: dict = {}
+
+    if body.vpn_lease_minutes is None:
+        unset["vpn_lease_minutes"] = ""
+    else:
+        update["vpn_lease_minutes"] = body.vpn_lease_minutes
+
+    if blackout_start is None:
+        unset["vpn_blackout_start"] = ""
+        unset["vpn_blackout_end"] = ""
+    else:
+        update["vpn_blackout_start"] = blackout_start
+        update["vpn_blackout_end"] = blackout_end
+
+    mongo_op: dict = {}
+    if update:
+        mongo_op["$set"] = update
+    if unset:
+        mongo_op["$unset"] = unset
+
+    if mongo_op:
+        users_col.update_one({"username": username}, mongo_op)
+
+    return JSONResponse(content={
+        "detail": f"VPN settings updated for '{username}'",
+        "vpn_lease_minutes": body.vpn_lease_minutes,
+        "vpn_blackout_start": blackout_start,
+        "vpn_blackout_end": blackout_end,
+    })
+
+
 @router.post("/promote", tags=["vpn"])
 def promote_lease(current_user: str = Depends(get_current_user)):
     """
@@ -575,15 +667,16 @@ def promote_lease(current_user: str = Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=f"Sidecar error: {exc}")
 
     server_endpoint = provider.get_server_endpoint()
-    lease_hours = provider.get_lease_hours()
+    user_doc = get_collection("users").find_one({"username": current_user}) or {}
+    lease_secs = provider.get_effective_lease_seconds(user_doc)
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=lease_hours)
+    expires_at_iso = _make_expires_at(lease_secs)
 
     leases_col.update_one(
         {"uid": current_user},
         {"$set": {
             "state": "active",
-            "expires_at": expires_at.isoformat(),
+            "expires_at": expires_at_iso,
             "server_pubkey": server_pubkey,
         }},
     )
@@ -605,7 +698,7 @@ def promote_lease(current_user: str = Depends(get_current_user)):
         "assigned_ip": lease["assigned_ip"],
         "server_pubkey": server_pubkey,
         "server_endpoint": server_endpoint,
-        "lease_expires": expires_at.isoformat(),
+        "lease_expires": expires_at_iso,
         "routes": routes,
         "wg_conf": wg_conf,
     })
