@@ -168,10 +168,12 @@ def request_vpn(
     expires_at = now + timedelta(hours=lease_hours)
     vault_path = f"vpn/{current_user}"
 
+    dns_servers = provider.get_dns()
+    dns_line = f"DNS = {', '.join(dns_servers)}\n" if dns_servers else ""
     wg_conf = (
         f"[Interface]\n"
         f"Address = {assigned_ip}/32\n"
-        f"DNS = 1.1.1.1\n"
+        f"{dns_line}"
         f"\n"
         f"[Peer]\n"
         f"PublicKey = {server_pubkey}\n"
@@ -248,6 +250,42 @@ def revoke_own_lease(current_user: str = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 # Admin endpoints
 # ---------------------------------------------------------------------------
+
+@router.get("/admin/peers", tags=["vpn"])
+def admin_list_live_peers(admin: str = Depends(_require_admin)):
+    """
+    Admin: live peer stats from the sidecar, enriched with MongoDB lease state.
+    Returns each peer's online status, handshake age, rx/tx, and lease metadata.
+    """
+    provider = _get_provider()
+    if not provider.is_enabled():
+        raise HTTPException(status_code=503, detail="WireGuard integration not configured or disabled")
+
+    sidecar = provider.get_client()
+    if not sidecar:
+        raise HTTPException(status_code=503, detail="Sidecar unavailable")
+
+    try:
+        peers = sidecar.get_peers()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    lease_map = {
+        l["uid"]: l
+        for l in get_collection("vpn_leases").find({}, {"_id": 0})
+    }
+
+    result = []
+    for peer in peers:
+        name = peer.get("name") or ""
+        lease = lease_map.get(name, {})
+        result.append({
+            **peer,
+            "state": lease.get("state"),
+            "expires_at": lease.get("expires_at"),
+        })
+    return JSONResponse(content=result)
+
 
 @router.get("/admin/leases", tags=["vpn"])
 def admin_list_leases(admin: str = Depends(_require_admin)):
@@ -385,11 +423,13 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
 
         # Build full wg.conf and save as vault secret
         routes = provider.get_routes()
+        dns_servers = provider.get_dns()
+        dns_line = f"DNS = {', '.join(dns_servers)}\n" if dns_servers else ""
         wg_conf = (
             f"[Interface]\n"
             f"PrivateKey = {wg_privkey}\n"
             f"Address = {assigned_ip}/32\n"
-            f"DNS = 1.1.1.1\n"
+            f"{dns_line}"
             f"\n"
             f"[Peer]\n"
             f"PublicKey = {server_pubkey}\n"

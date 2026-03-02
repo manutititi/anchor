@@ -24,6 +24,8 @@ class PeerInfo(BaseModel):
     latest_handshake: int = 0
     transfer_rx: int = 0
     transfer_tx: int = 0
+    online: bool = False
+    age_seconds: int | None = None
 
 
 class StatusResponse(BaseModel):

@@ -5,40 +5,302 @@
 {% block content %}
 <div x-data="vpnPage()" x-init="init()">
 
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-gray-800">🔒 WireGuard VPN</h1>
-    <span class="text-sm text-gray-500">VPN lease management</span>
-  </div>
-
   <!-- ============================================================ -->
   <!-- ADMIN VIEW                                                    -->
   <!-- ============================================================ -->
   <template x-if="isAdmin">
-    <div class="space-y-6">
+    <div class="space-y-4">
 
-      <!-- Sidecar Config card -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-2xl">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div class="flex items-center gap-3">
-            <span class="text-2xl">⚙️</span>
-            <div>
-              <h2 class="text-lg font-semibold text-gray-800">Sidecar Configuration</h2>
-              <p class="text-xs text-gray-500">WireGuard sidecar URL, API key, subnet and lease settings</p>
-            </div>
+      <!-- Page header + summary stats -->
+      <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="text-xl font-bold text-gray-800 mr-2">WireGuard VPN</h1>
+
+        <span :class="wgStatus ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200'"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border">
+          <span :class="wgStatus ? 'bg-green-500' : 'bg-gray-400'" class="w-1.5 h-1.5 rounded-full"></span>
+          <span x-text="wgStatus ? 'Enabled' : 'Disabled'"></span>
+        </span>
+
+        <template x-if="livePeers.length > 0">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+            <span x-text="livePeers.filter(p => p.online).length" class="font-bold"></span>
+            <span x-text="' / ' + livePeers.length + ' online'"></span>
+          </span>
+        </template>
+
+        <template x-if="pool">
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-50 text-gray-600 border border-gray-200">
+            <span class="text-gray-400">pool</span>
+            <span x-text="pool.free + ' free / ' + pool.total"></span>
+          </span>
+        </template>
+
+        <div class="flex-1"></div>
+
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-400"
+                x-show="peersRefreshedAt"
+                x-text="'Updated ' + peersRefreshedAt"></span>
+          <button @click="loadLivePeers()"
+                  :disabled="peersLoading"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+            <span :class="peersLoading ? 'animate-spin' : ''" class="inline-block">↺</span>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Live Peers ───────────────────────────────────────────── -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+          <div class="flex items-center gap-2">
+            <span class="text-base">📡</span>
+            <span class="text-sm font-semibold text-gray-700">Live Peers</span>
+            <span class="text-xs text-gray-400">auto-refresh 30 s</span>
           </div>
-          <div class="flex items-center gap-3">
-            <template x-if="wgStatus !== null">
-              <span :class="wgStatus ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
-                    class="text-xs font-medium px-2.5 py-1 rounded-full"
-                    x-text="wgStatus ? '● Enabled' : '○ Disabled'"></span>
-            </template>
-            <button @click="cfgOpen = !cfgOpen"
-                    class="text-gray-400 hover:text-gray-600 text-xl leading-none select-none"
-                    x-text="cfgOpen ? '▲' : '▼'"></button>
-          </div>
+          <template x-if="peersLoading">
+            <span class="text-xs text-gray-400 animate-pulse">Loading…</span>
+          </template>
         </div>
 
-        <div x-show="cfgOpen" x-cloak class="px-6 py-5 space-y-5">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-400 uppercase tracking-wider">
+              <tr>
+                <th class="px-5 py-2.5 text-left">User</th>
+                <th class="px-5 py-2.5 text-left">IP</th>
+                <th class="px-5 py-2.5 text-left">Status</th>
+                <th class="px-5 py-2.5 text-left">Endpoint</th>
+                <th class="px-5 py-2.5 text-left">Handshake</th>
+                <th class="px-5 py-2.5 text-right">↓ RX</th>
+                <th class="px-5 py-2.5 text-right">↑ TX</th>
+                <th class="px-5 py-2.5 text-left">Lease</th>
+                <th class="px-5 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              <template x-if="livePeers.length === 0 && !peersLoading">
+                <tr>
+                  <td colspan="9" class="px-5 py-8 text-center text-gray-400 text-sm">
+                    <template x-if="wgStatus">
+                      <span>No peers registered</span>
+                    </template>
+                    <template x-if="!wgStatus">
+                      <span>WireGuard not enabled — configure the sidecar below</span>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+              <template x-for="p in livePeers" :key="p.public_key">
+                <tr class="hover:bg-gray-50/50 transition-colors">
+                  <!-- User -->
+                  <td class="px-5 py-3 font-medium text-gray-800">
+                    <span x-text="p.name || '—'"></span>
+                  </td>
+                  <!-- IP (strip /32) -->
+                  <td class="px-5 py-3 font-mono text-xs text-gray-600"
+                      x-text="(p.allowed_ips || '').replace('/32','')"></td>
+                  <!-- Online status -->
+                  <td class="px-5 py-3">
+                    <template x-if="p.online">
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-green-700">
+                        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                        Online
+                      </span>
+                    </template>
+                    <template x-if="!p.online && p.age_seconds !== null">
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-400">
+                        <span class="w-2 h-2 rounded-full bg-gray-300"></span>
+                        Offline
+                      </span>
+                    </template>
+                    <template x-if="!p.online && p.age_seconds === null">
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-300">
+                        <span class="w-2 h-2 rounded-full bg-gray-200"></span>
+                        Never
+                      </span>
+                    </template>
+                  </td>
+                  <!-- Endpoint -->
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500"
+                      x-text="p.endpoint || '—'"></td>
+                  <!-- Handshake age -->
+                  <td class="px-5 py-3 text-xs text-gray-500"
+                      x-text="fmtAge(p.age_seconds)"></td>
+                  <!-- RX -->
+                  <td class="px-5 py-3 text-xs text-right font-mono text-gray-500"
+                      x-text="fmtBytes(p.transfer_rx)"></td>
+                  <!-- TX -->
+                  <td class="px-5 py-3 text-xs text-right font-mono text-gray-500"
+                      x-text="fmtBytes(p.transfer_tx)"></td>
+                  <!-- Lease state -->
+                  <td class="px-5 py-3">
+                    <template x-if="p.state === 'active'">
+                      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700"
+                            x-text="'active' + (p.expires_at ? ' · ' + fmtExpiry(p.expires_at) : '')"></span>
+                    </template>
+                    <template x-if="p.state === 'onboarding'">
+                      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">onboarding</span>
+                    </template>
+                    <template x-if="!p.state">
+                      <span class="text-xs text-gray-300">—</span>
+                    </template>
+                  </td>
+                  <!-- Actions -->
+                  <td class="px-5 py-3 text-right">
+                    <template x-if="p.name">
+                      <button @click="revokeAdmin(p.name)"
+                              class="text-xs text-red-500 hover:text-red-700 font-medium">
+                        Revoke
+                      </button>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── VPN Users (provision) ────────────────────────────────── -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🔑</span>
+            <div>
+              <span class="text-sm font-semibold text-gray-700">VPN Access — Users</span>
+              <span class="text-xs text-gray-400 ml-2">provision or revoke OTP seeds</span>
+            </div>
+          </div>
+          <button @click="loadVpnUsers()"
+                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-400 uppercase tracking-wider">
+              <tr>
+                <th class="px-5 py-2.5 text-left">User</th>
+                <th class="px-5 py-2.5 text-left">Groups</th>
+                <th class="px-5 py-2.5 text-left">VPN UID</th>
+                <th class="px-5 py-2.5 text-left">OTP Seed</th>
+                <th class="px-5 py-2.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              <template x-if="vpnUsers.length === 0">
+                <tr>
+                  <td colspan="5" class="px-5 py-6 text-center text-gray-400 text-sm">No users found</td>
+                </tr>
+              </template>
+              <template x-for="u in vpnUsers" :key="u.username">
+                <tr class="hover:bg-gray-50/50">
+                  <td class="px-5 py-3 font-medium text-gray-800" x-text="u.username"></td>
+                  <td class="px-5 py-3 text-xs text-gray-400" x-text="u.groups.join(', ')"></td>
+                  <td class="px-5 py-3">
+                    <template x-if="u.vpn_uid">
+                      <span class="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded"
+                            x-text="'UID ' + u.vpn_uid"></span>
+                    </template>
+                    <template x-if="!u.vpn_uid">
+                      <span class="text-gray-300 text-xs">—</span>
+                    </template>
+                  </td>
+                  <td class="px-5 py-3">
+                    <template x-if="u.has_vpn_seed">
+                      <span class="text-xs text-green-600 font-medium">✔ Configured</span>
+                    </template>
+                    <template x-if="!u.has_vpn_seed">
+                      <span class="text-xs text-gray-300">—</span>
+                    </template>
+                  </td>
+                  <td class="px-5 py-3 text-right">
+                    <div class="flex items-center justify-end gap-3">
+                      <button @click="provisionUser(u.username)"
+                              :disabled="provisioningUser === u.username"
+                              class="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
+                              x-text="u.has_vpn_seed ? 'Re-provision' : 'Provision'">
+                      </button>
+                      <template x-if="u.has_vpn_seed">
+                        <button @click="revokeUserOtp(u.username)"
+                                class="text-xs text-red-500 hover:text-red-700 font-medium">
+                          Revoke OTP
+                        </button>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Active Leases (compact) ──────────────────────────────── -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+          <div class="flex items-center gap-2">
+            <span class="text-base">📋</span>
+            <span class="text-sm font-semibold text-gray-700">Active Leases</span>
+          </div>
+          <button @click="loadLeases()"
+                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-400 uppercase tracking-wider">
+              <tr>
+                <th class="px-5 py-2.5 text-left">User</th>
+                <th class="px-5 py-2.5 text-left">State</th>
+                <th class="px-5 py-2.5 text-left">Assigned IP</th>
+                <th class="px-5 py-2.5 text-left">Expires</th>
+                <th class="px-5 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              <template x-if="leases.length === 0">
+                <tr>
+                  <td colspan="5" class="px-5 py-5 text-center text-gray-400 text-sm">No active leases</td>
+                </tr>
+              </template>
+              <template x-for="l in leases" :key="l.uid">
+                <tr class="hover:bg-gray-50/50">
+                  <td class="px-5 py-2.5 font-medium text-gray-800 text-xs" x-text="l.uid"></td>
+                  <td class="px-5 py-2.5">
+                    <span :class="l.state === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                          class="text-xs font-medium px-2 py-0.5 rounded-full"
+                          x-text="l.state || 'active'"></span>
+                  </td>
+                  <td class="px-5 py-2.5 font-mono text-xs text-gray-600" x-text="l.assigned_ip"></td>
+                  <td class="px-5 py-2.5 text-xs text-gray-400" x-text="fmtExpiry(l.expires_at)"></td>
+                  <td class="px-5 py-2.5 text-right">
+                    <button @click="revokeAdmin(l.uid)"
+                            class="text-xs text-red-500 hover:text-red-700 font-medium">
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Configuration (collapsible) ─────────────────────────── -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <button class="w-full flex items-center justify-between px-5 py-3.5 text-left"
+                @click="cfgOpen = !cfgOpen">
+          <div class="flex items-center gap-2">
+            <span class="text-base">⚙️</span>
+            <span class="text-sm font-semibold text-gray-700">Sidecar Configuration</span>
+            <template x-if="cfgMeta.updated_at">
+              <span class="text-xs text-gray-400"
+                    x-text="'· last saved ' + cfgMeta.updated_at + (cfgMeta.created_by ? ' by ' + cfgMeta.created_by : '')"></span>
+            </template>
+          </div>
+          <span class="text-gray-400 text-sm" x-text="cfgOpen ? '▲' : '▼'"></span>
+        </button>
+
+        <div x-show="cfgOpen" x-cloak class="px-5 pb-5 pt-1 space-y-4 border-t border-gray-100">
 
           <!-- Row 1: sidecar URL + api_key -->
           <div class="grid grid-cols-2 gap-4">
@@ -58,7 +320,7 @@
             </div>
           </div>
 
-          <!-- Row 2: subnet + server_endpoint (host + port split) -->
+          <!-- Row 2: subnet + server_endpoint -->
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">VPN Subnet (CIDR)</label>
@@ -68,7 +330,9 @@
               <p class="text-xs text-gray-400 mt-1">.0 (network), .1 (server) and .255 (broadcast) are reserved.</p>
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Server Endpoint <span class="text-red-400">*</span></label>
+              <label class="block text-xs font-medium text-gray-600 mb-1">
+                Server Endpoint <span class="text-red-400">*</span>
+              </label>
               <div class="flex gap-2">
                 <input x-model="endpointHost"
                        @input="cfg.server_endpoint = endpointHost + ':' + endpointPort"
@@ -81,7 +345,7 @@
                        placeholder="51820"
                        class="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
               </div>
-              <p class="text-xs text-gray-400 mt-1">Public IP/hostname and UDP port. Sent to clients in their wg config.</p>
+              <p class="text-xs text-gray-400 mt-1">Public IP/hostname and UDP port sent to clients.</p>
             </div>
           </div>
 
@@ -100,9 +364,9 @@
               <input x-model.number="cfg.knock_port" type="number" min="0" max="65535"
                      placeholder="62201"
                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-              <p class="text-xs text-gray-400 mt-1">Must match <code class="bg-gray-100 px-1 rounded">VPN_KNOCK_PORT</code> in docker-compose.</p>
+              <p class="text-xs text-gray-400 mt-1">Must match <code class="bg-gray-100 px-1 rounded">VPN_KNOCK_PORT</code>.</p>
             </div>
-            <div class="flex flex-col justify-end pb-2">
+            <div class="pb-2">
               <label class="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" x-model="cfg.enabled" class="rounded" />
                 <span class="text-sm text-gray-700">Enabled</span>
@@ -110,18 +374,28 @@
             </div>
           </div>
 
-          <!-- Row 4: Routed Networks -->
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">
-              Routed Networks
-              <span class="text-gray-400 font-normal ml-1">(one CIDR per line)</span>
-            </label>
-            <textarea x-model="cfg.routes_raw" rows="3"
-                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      placeholder="0.0.0.0/0&#10;10.100.0.0/16"></textarea>
-            <p class="text-xs text-gray-400 mt-1">
-              Networks routed through the VPN tunnel for clients. Default: <code class="bg-gray-100 px-1 rounded">0.0.0.0/0</code> (all traffic).
-            </p>
+          <!-- Row 4: Routed Networks + DNS (side by side) -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">
+                Routed Networks
+                <span class="text-gray-400 font-normal ml-1">(one CIDR per line)</span>
+              </label>
+              <textarea x-model="cfg.routes_raw" rows="3"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        placeholder="0.0.0.0/0&#10;10.100.0.0/16"></textarea>
+              <p class="text-xs text-gray-400 mt-1">AllowedIPs pushed to clients. Default: <code class="bg-gray-100 px-1 rounded">0.0.0.0/0</code>.</p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">
+                DNS Servers
+                <span class="text-gray-400 font-normal ml-1">(one per line, optional)</span>
+              </label>
+              <textarea x-model="cfg.dns_raw" rows="3"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        placeholder="1.1.1.1&#10;8.8.8.8"></textarea>
+              <p class="text-xs text-gray-400 mt-1">Leave empty to omit DNS from client configs.</p>
+            </div>
           </div>
 
           <!-- Action buttons -->
@@ -161,7 +435,7 @@
               <template x-if="testResult.error">
                 <p class="mt-1 text-red-600 font-mono text-xs" x-text="testResult.error"></p>
               </template>
-              <template x-if="testResult.ok && Object.keys(testResult.details).length">
+              <template x-if="testResult.ok && Object.keys(testResult.details || {}).length">
                 <dl class="mt-2 space-y-0.5 text-gray-600">
                   <template x-for="[k, v] in Object.entries(testResult.details)" :key="k">
                     <div class="flex gap-2 text-xs">
@@ -174,172 +448,6 @@
             </div>
           </template>
 
-          <!-- Metadata -->
-          <template x-if="cfgMeta.updated_at">
-            <p class="text-xs text-gray-400">
-              Last saved <span x-text="cfgMeta.updated_at"></span>
-              <template x-if="cfgMeta.created_by">
-                <span> by <span x-text="cfgMeta.created_by" class="font-medium"></span></span>
-              </template>
-            </p>
-          </template>
-
-        </div>
-      </div>
-
-      <!-- Pool status card -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 max-w-2xl">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div class="flex items-center gap-3">
-            <span class="text-2xl">🌐</span>
-            <h2 class="text-lg font-semibold text-gray-800">IP Pool</h2>
-          </div>
-          <button @click="loadPool()"
-                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
-        </div>
-        <div class="px-6 py-4 flex items-center gap-6">
-          <template x-if="pool">
-            <div class="flex gap-4">
-              <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
-                <span class="text-base">●</span>
-                <span x-text="pool.free + ' free'"></span>
-              </span>
-              <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
-                <span class="text-base">●</span>
-                <span x-text="pool.leased + ' leased'"></span>
-              </span>
-              <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-sm">
-                <span x-text="pool.total + ' total'"></span>
-              </span>
-            </div>
-          </template>
-          <template x-if="!pool">
-            <span class="text-sm text-gray-400">Pool not initialised. Save a config with a valid subnet first.</span>
-          </template>
-        </div>
-      </div>
-
-      <!-- Active leases card -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div class="flex items-center gap-3">
-            <span class="text-2xl">📋</span>
-            <h2 class="text-lg font-semibold text-gray-800">Active Leases</h2>
-          </div>
-          <button @click="loadLeases()"
-                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-              <tr>
-                <th class="px-5 py-3 text-left">User</th>
-                <th class="px-5 py-3 text-left">State</th>
-                <th class="px-5 py-3 text-left">Assigned IP</th>
-                <th class="px-5 py-3 text-left">Expires at</th>
-                <th class="px-5 py-3 text-left"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              <template x-if="leases.length === 0">
-                <tr>
-                  <td colspan="5" class="px-5 py-6 text-center text-gray-400 text-sm">No active leases</td>
-                </tr>
-              </template>
-              <template x-for="l in leases" :key="l.uid">
-                <tr class="hover:bg-gray-50">
-                  <td class="px-5 py-3 font-medium text-gray-800" x-text="l.uid"></td>
-                  <td class="px-5 py-3">
-                    <span :class="l.state === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
-                          class="text-xs font-medium px-2 py-0.5 rounded-full"
-                          x-text="l.state || 'active'"></span>
-                  </td>
-                  <td class="px-5 py-3 font-mono text-gray-700" x-text="l.assigned_ip"></td>
-                  <td class="px-5 py-3 text-gray-500 text-xs" x-text="l.expires_at"></td>
-                  <td class="px-5 py-3 text-right">
-                    <button @click="revokeAdmin(l.uid)"
-                            class="text-xs text-red-600 hover:text-red-800 font-medium">
-                      Revoke
-                    </button>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- VPN Users card -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div class="flex items-center gap-3">
-            <span class="text-2xl">🔑</span>
-            <div>
-              <h2 class="text-lg font-semibold text-gray-800">VPN Access — Users</h2>
-              <p class="text-xs text-gray-500">Generate provision tokens for the SPA onboarding flow</p>
-            </div>
-          </div>
-          <button @click="loadVpnUsers()"
-                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-              <tr>
-                <th class="px-5 py-3 text-left">User</th>
-                <th class="px-5 py-3 text-left">VPN UID</th>
-                <th class="px-5 py-3 text-left">OTP Seed</th>
-                <th class="px-5 py-3 text-left"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              <template x-if="vpnUsers.length === 0">
-                <tr>
-                  <td colspan="4" class="px-5 py-6 text-center text-gray-400 text-sm">No users found</td>
-                </tr>
-              </template>
-              <template x-for="u in vpnUsers" :key="u.username">
-                <tr class="hover:bg-gray-50">
-                  <td class="px-5 py-3 font-medium text-gray-800">
-                    <div x-text="u.username"></div>
-                    <div class="text-xs text-gray-400" x-text="u.groups.join(', ')"></div>
-                  </td>
-                  <td class="px-5 py-3">
-                    <template x-if="u.vpn_uid">
-                      <span class="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded"
-                            x-text="'UID ' + u.vpn_uid"></span>
-                    </template>
-                    <template x-if="!u.vpn_uid">
-                      <span class="text-gray-400 text-xs">—</span>
-                    </template>
-                  </td>
-                  <td class="px-5 py-3">
-                    <template x-if="u.has_vpn_seed">
-                      <span class="text-xs text-green-700 font-medium">✔ Configured</span>
-                    </template>
-                    <template x-if="!u.has_vpn_seed">
-                      <span class="text-xs text-gray-400">—</span>
-                    </template>
-                  </td>
-                  <td class="px-5 py-3 text-right">
-                    <div class="flex items-center justify-end gap-3">
-                      <button @click="provisionUser(u.username)"
-                              :disabled="provisioningUser === u.username"
-                              class="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
-                              x-text="u.has_vpn_seed ? 'Re-provision' : 'Provision'">
-                      </button>
-                      <template x-if="u.has_vpn_seed">
-                        <button @click="revokeUserOtp(u.username)"
-                                class="text-xs text-red-600 hover:text-red-800 font-medium">
-                          Revoke OTP
-                        </button>
-                      </template>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
         </div>
       </div>
 
@@ -366,37 +474,27 @@
           <button @click="provModal = null" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
         </div>
         <div class="px-6 py-5 space-y-5">
-
-          <!-- Step 1: provision_token -->
           <div>
             <p class="text-xs font-medium text-gray-600 mb-2">
               1. Send this token to the user. They paste it into:
               <code class="bg-gray-100 px-1 rounded">anc vpn init &lt;token&gt;</code>
             </p>
             <div class="relative">
-              <textarea
-                x-text="provModal.token"
-                readonly
-                rows="4"
+              <textarea x-text="provModal.token" readonly rows="4"
                 class="w-full font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none select-all"
-                @click="$el.select()"
-              ></textarea>
+                @click="$el.select()"></textarea>
               <button @click="copyToken(provModal.token)"
                       class="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-600"
                       x-text="tokenCopied ? '✔ Copied' : 'Copy'">
               </button>
             </div>
           </div>
-
-          <!-- Step 2: TOTP provisioning URL -->
           <div>
             <p class="text-xs font-medium text-gray-600 mb-2">
-              2. Send this TOTP URL so they can add it to their authenticator app (Google Authenticator, Aegis, Bitwarden…):
+              2. Send this TOTP URL so they can add it to their authenticator app:
             </p>
             <div class="relative">
-              <input type="text"
-                     :value="provModal.provisioning_url"
-                     readonly
+              <input type="text" :value="provModal.provisioning_url" readonly
                      class="w-full font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none"
                      @click="$el.select()" />
               <button @click="copyToken(provModal.provisioning_url)"
@@ -405,10 +503,9 @@
               </button>
             </div>
           </div>
-
           <p class="text-xs text-gray-400">
-            The token contains the TOTP seed, VPN UID, server endpoint, knock port, and WireGuard public key.
-            It is valid until the OTP seed is revoked.
+            The token contains the TOTP seed, VPN UID, server endpoint, knock port, and WireGuard keys.
+            Valid until the OTP seed is revoked.
           </p>
         </div>
         <div class="px-6 pb-5">
@@ -427,27 +524,27 @@
   <template x-if="!isAdmin">
     <div class="max-w-lg space-y-4">
 
-      <!-- Active lease card -->
       <template x-if="userLease">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-3">
-          <div class="flex items-center gap-2 text-green-700 font-semibold">
-            <span>✔</span> Active VPN Lease
+          <div class="flex items-center gap-2 text-green-700 font-semibold text-sm">
+            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+            Active VPN Lease
           </div>
           <dl class="text-sm space-y-1.5">
             <div class="flex gap-3">
-              <dt class="w-28 text-gray-500 shrink-0">Assigned IP</dt>
-              <dd class="font-mono text-gray-800" x-text="userLease.assigned_ip"></dd>
+              <dt class="w-28 text-gray-500 shrink-0 text-xs">Assigned IP</dt>
+              <dd class="font-mono text-gray-800 text-xs" x-text="userLease.assigned_ip"></dd>
             </div>
             <div class="flex gap-3">
-              <dt class="w-28 text-gray-500 shrink-0">Peer name</dt>
-              <dd class="text-gray-700" x-text="userLease.peer_name"></dd>
+              <dt class="w-28 text-gray-500 shrink-0 text-xs">Peer name</dt>
+              <dd class="text-gray-700 text-xs" x-text="userLease.peer_name"></dd>
             </div>
             <div class="flex gap-3">
-              <dt class="w-28 text-gray-500 shrink-0">Expires at</dt>
+              <dt class="w-28 text-gray-500 shrink-0 text-xs">Expires at</dt>
               <dd class="text-gray-500 text-xs" x-text="userLease.expires_at"></dd>
             </div>
             <div class="flex gap-3">
-              <dt class="w-28 text-gray-500 shrink-0">Config secret</dt>
+              <dt class="w-28 text-gray-500 shrink-0 text-xs">Config secret</dt>
               <dd>
                 <span class="font-mono text-xs text-purple-700 bg-purple-50 px-2 py-0.5 rounded"
                       x-text="userLease.vault_path"></span>
@@ -463,19 +560,17 @@
         </div>
       </template>
 
-      <!-- No lease -->
       <template x-if="!userLease && !leaseLoading">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center space-y-3">
           <p class="text-gray-500 text-sm">You have no active VPN lease.</p>
           <p class="text-xs text-gray-400">
-            VPN access requires a WireGuard public key.<br>
-            Use <code class="bg-gray-100 px-1 rounded">anc vpn request --pubkey &lt;key&gt;</code>
-            from the CLI (Phase 3) or <code class="bg-gray-100 px-1 rounded">POST /vpn/request</code> from the API.
+            Ask an admin to provision your WireGuard peer, then run
+            <code class="bg-gray-100 px-1 rounded">anc vpn init &lt;token&gt;</code> followed by
+            <code class="bg-gray-100 px-1 rounded">anc vpn up</code>.
           </p>
         </div>
       </template>
 
-      <!-- Action result -->
       <template x-if="actionMsg">
         <div :class="actionOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
              class="border rounded-lg px-4 py-2 text-sm" x-text="actionMsg"></div>
@@ -494,7 +589,7 @@ function vpnPage() {
     isAdmin: false,
 
     // Admin state
-    cfgOpen: true,
+    cfgOpen: false,
     wgStatus: null,
     endpointHost: '',
     endpointPort: 51820,
@@ -506,7 +601,8 @@ function vpnPage() {
       lease_hours: 8,
       knock_port: 0,
       enabled: true,
-      routes_raw: '0.0.0.0/0',
+      routes_raw: '',
+      dns_raw: '',
     },
     cfgMeta: {},
     saving: false,
@@ -514,12 +610,19 @@ function vpnPage() {
     saveOk: false,
     testing: false,
     testResult: null,
+
     pool: null,
     leases: [],
     vpnUsers: [],
     provisioningUser: null,
     provModal: null,
     tokenCopied: false,
+
+    // Live peers
+    livePeers: [],
+    peersLoading: false,
+    peersRefreshedAt: null,
+    _peersTimer: null,
 
     // User state
     userLease: null,
@@ -535,13 +638,64 @@ function vpnPage() {
       } catch { this.isAdmin = false; }
 
       if (this.isAdmin) {
-        await Promise.all([this.loadCfg(), this.loadPool(), this.loadLeases(), this.loadVpnUsers()]);
+        await Promise.all([
+          this.loadCfg(),
+          this.loadPool(),
+          this.loadLeases(),
+          this.loadVpnUsers(),
+          this.loadLivePeers(),
+        ]);
+        this._peersTimer = setInterval(() => this.loadLivePeers(), 30_000);
       } else {
         await this.loadUserLease();
       }
     },
 
-    // ---- Admin: config ----
+    // ── Formatters ───────────────────────────────────────────────
+
+    fmtBytes(n) {
+      if (!n) return '0 B';
+      const k = 1024, u = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(Math.max(n, 1)) / Math.log(k));
+      return (n / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
+    },
+
+    fmtAge(secs) {
+      if (secs === null || secs === undefined) return 'never';
+      if (secs < 60) return secs + 's ago';
+      if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+      if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+      return Math.floor(secs / 86400) + 'd ago';
+    },
+
+    fmtExpiry(iso) {
+      if (!iso) return '—';
+      const diff = new Date(iso) - Date.now();
+      if (diff < 0) return 'expired';
+      if (diff < 3_600_000) return 'in ' + Math.floor(diff / 60_000) + 'm';
+      if (diff < 86_400_000) return 'in ' + Math.floor(diff / 3_600_000) + 'h';
+      return 'in ' + Math.floor(diff / 86_400_000) + 'd';
+    },
+
+    // ── Live peers ───────────────────────────────────────────────
+
+    async loadLivePeers() {
+      this.peersLoading = true;
+      try {
+        const res = await fetch('/vpn/admin/peers', {
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        if (res.ok) {
+          this.livePeers = await res.json();
+          this.peersRefreshedAt = new Date().toLocaleTimeString();
+        }
+      } catch { /* ignore */ } finally {
+        this.peersLoading = false;
+      }
+    },
+
+    // ── Admin: config ────────────────────────────────────────────
+
     async loadCfg() {
       const res = await fetch('/integrations/wireguard', {
         headers: { Authorization: 'Bearer ' + this.token() },
@@ -549,15 +703,19 @@ function vpnPage() {
       if (!res.ok) return;
       const data = await res.json();
       this.wgStatus = data.enabled;
-      this.cfgMeta = { created_at: data.created_at, updated_at: data.updated_at, created_by: data.created_by };
+      this.cfgMeta = {
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        created_by: data.created_by,
+      };
       if (data.config) {
         const loaded = { ...data.config };
         if (loaded.api_key === '***') loaded.api_key = '';
-        // Convert routes array → textarea string before merging
         loaded.routes_raw = (loaded.routes || ['0.0.0.0/0']).join('\n');
+        loaded.dns_raw = (loaded.dns || []).join('\n');
         delete loaded.routes;
+        delete loaded.dns;
         this.cfg = { ...this.cfg, ...loaded };
-        // Populate split host/port fields from stored server_endpoint
         const ep = this.cfg.server_endpoint || '';
         const colon = ep.lastIndexOf(':');
         if (colon !== -1) {
@@ -577,24 +735,21 @@ function vpnPage() {
       try {
         const payload = { ...this.cfg };
         if (!payload.api_key) delete payload.api_key;
-        // Convert textarea string → routes array; drop the raw field
         payload.routes = (payload.routes_raw || '0.0.0.0/0')
           .split('\n').map(s => s.trim()).filter(Boolean);
+        payload.dns = (payload.dns_raw || '')
+          .split('\n').map(s => s.trim()).filter(Boolean);
         delete payload.routes_raw;
+        delete payload.dns_raw;
         const res = await fetch('/integrations/wireguard', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.token() },
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (res.ok) {
-          this.saveOk = true;
-          this.saveMsg = data.detail || 'Saved.';
-          await Promise.all([this.loadCfg(), this.loadPool()]);
-        } else {
-          this.saveOk = false;
-          this.saveMsg = data.detail || 'Save failed.';
-        }
+        this.saveOk = res.ok;
+        this.saveMsg = data.detail || (res.ok ? 'Saved.' : 'Save failed.');
+        if (res.ok) await Promise.all([this.loadCfg(), this.loadPool()]);
       } catch (e) {
         this.saveOk = false;
         this.saveMsg = 'Network error: ' + e.message;
@@ -634,7 +789,8 @@ function vpnPage() {
       }
     },
 
-    // ---- Admin: pool ----
+    // ── Admin: pool ──────────────────────────────────────────────
+
     async loadPool() {
       try {
         const res = await fetch('/vpn/admin/pool', {
@@ -644,7 +800,8 @@ function vpnPage() {
       } catch { /* ignore */ }
     },
 
-    // ---- Admin: leases ----
+    // ── Admin: leases ────────────────────────────────────────────
+
     async loadLeases() {
       try {
         const res = await fetch('/vpn/admin/leases', {
@@ -656,52 +813,15 @@ function vpnPage() {
 
     async revokeAdmin(uid) {
       if (!confirm(`Revoke VPN lease for '${uid}'?`)) return;
-      const res = await fetch('/vpn/admin/leases/' + encodeURIComponent(uid), {
+      await fetch('/vpn/admin/leases/' + encodeURIComponent(uid), {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + this.token() },
       });
-      await this.loadLeases();
-      await this.loadPool();
+      await Promise.all([this.loadLeases(), this.loadPool(), this.loadLivePeers()]);
     },
 
-    // ---- User: own lease ----
-    async loadUserLease() {
-      this.leaseLoading = true;
-      try {
-        const res = await fetch('/vpn/status', {
-          headers: { Authorization: 'Bearer ' + this.token() },
-        });
-        this.userLease = res.ok ? await res.json() : null;
-      } catch {
-        this.userLease = null;
-      } finally {
-        this.leaseLoading = false;
-      }
-    },
+    // ── Admin: VPN users ─────────────────────────────────────────
 
-    async revokeOwn() {
-      if (!confirm('Revoke your VPN lease? You will be disconnected.')) return;
-      try {
-        const res = await fetch('/vpn/lease', {
-          method: 'DELETE',
-          headers: { Authorization: 'Bearer ' + this.token() },
-        });
-        const data = await res.json();
-        if (res.ok) {
-          this.actionOk = true;
-          this.actionMsg = data.detail || 'Lease revoked.';
-          this.userLease = null;
-        } else {
-          this.actionOk = false;
-          this.actionMsg = data.detail || 'Revoke failed.';
-        }
-      } catch (e) {
-        this.actionOk = false;
-        this.actionMsg = 'Network error: ' + e.message;
-      }
-    },
-
-    // ---- Admin: VPN users ----
     async loadVpnUsers() {
       try {
         const res = await fetch('/admin/users', {
@@ -740,7 +860,7 @@ function vpnPage() {
 
     async revokeUserOtp(username) {
       if (!confirm(`Revoke VPN OTP seed for '${username}'? They will not be able to connect until re-provisioned.`)) return;
-      const res = await fetch('/vpn/admin/users/' + encodeURIComponent(username) + '/otp', {
+      await fetch('/vpn/admin/users/' + encodeURIComponent(username) + '/otp', {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + this.token() },
       });
@@ -752,7 +872,40 @@ function vpnPage() {
         await navigator.clipboard.writeText(text);
         this.tokenCopied = true;
         setTimeout(() => { this.tokenCopied = false; }, 2000);
-      } catch { /* fallback: user can select manually */ }
+      } catch { /* user can select manually */ }
+    },
+
+    // ── User: own lease ──────────────────────────────────────────
+
+    async loadUserLease() {
+      this.leaseLoading = true;
+      try {
+        const res = await fetch('/vpn/status', {
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        this.userLease = res.ok ? await res.json() : null;
+      } catch {
+        this.userLease = null;
+      } finally {
+        this.leaseLoading = false;
+      }
+    },
+
+    async revokeOwn() {
+      if (!confirm('Revoke your VPN lease? You will be disconnected.')) return;
+      try {
+        const res = await fetch('/vpn/lease', {
+          method: 'DELETE',
+          headers: { Authorization: 'Bearer ' + this.token() },
+        });
+        const data = await res.json();
+        this.actionOk = res.ok;
+        this.actionMsg = data.detail || (res.ok ? 'Lease revoked.' : 'Revoke failed.');
+        if (res.ok) this.userLease = null;
+      } catch (e) {
+        this.actionOk = false;
+        this.actionMsg = 'Network error: ' + e.message;
+      }
     },
   };
 }

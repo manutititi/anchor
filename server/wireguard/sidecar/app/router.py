@@ -7,6 +7,7 @@ DELETE /peers/{pubkey}  → Remove a peer
 GET    /status         → Healthcheck (interface exists + permissions)
 """
 
+import time
 from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +16,8 @@ from fastapi.responses import JSONResponse
 from app.models import PeerCreate, PeerInfo, StatusResponse, ErrorResponse
 from app.wg import add_peer, remove_peer, show_dump, check_interface, WireGuardError
 from app import peers as meta
+
+ONLINE_THRESHOLD = 180  # seconds since last handshake to be considered online
 
 router = APIRouter()
 
@@ -64,6 +67,7 @@ def list_peers():
         raise HTTPException(status_code=500, detail=exc.stderr)
 
     metadata = meta.load_metadata()
+    now = int(time.time())
     result: list[dict] = []
 
     for peer in dump.peers:
@@ -71,6 +75,14 @@ def list_peers():
         entry = metadata.get(peer.public_key)
         if isinstance(entry, dict):
             name = entry.get("name")
+
+        hs = peer.latest_handshake
+        if hs > 0:
+            age_seconds = now - hs
+            online = age_seconds <= ONLINE_THRESHOLD
+        else:
+            age_seconds = None
+            online = False
 
         result.append(
             PeerInfo(
@@ -81,6 +93,8 @@ def list_peers():
                 latest_handshake=peer.latest_handshake,
                 transfer_rx=peer.transfer_rx,
                 transfer_tx=peer.transfer_tx,
+                online=online,
+                age_seconds=age_seconds,
             ).model_dump()
         )
 

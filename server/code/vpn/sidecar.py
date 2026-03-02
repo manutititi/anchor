@@ -60,6 +60,11 @@ class SidecarClient:
         encoded = quote(pubkey, safe="")
         self._request("DELETE", f"/peers/{encoded}")
 
+    def get_peers(self) -> list[dict]:
+        """GET /peers — returns all peers with live stats (online, age_seconds, rx, tx)."""
+        result = self._request("GET", "/peers")
+        return result if isinstance(result, list) else []
+
     def get_status(self) -> dict:
         """GET /status — no auth required. Returns public_key, listen_port, peer_count."""
         return self._request("GET", "/status", auth=False)

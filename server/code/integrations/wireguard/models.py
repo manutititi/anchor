@@ -30,6 +30,9 @@ class WireGuardConfig(BaseModel):
     # Default: 0.0.0.0/0 (full tunnel / all traffic).
     routes: list[str] = ["0.0.0.0/0"]
 
+    # DNS servers pushed to clients in wg.conf. Empty = no DNS line.
+    dns: list[str] = []
+
     @field_validator("knock_port")
     @classmethod
     def validate_knock_port(cls, v: int) -> int:

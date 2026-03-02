@@ -83,3 +83,7 @@ class WireGuardProvider(IntegrationProvider):
     def get_routes(self) -> list[str]:
         cfg = self._get_config()
         return list(cfg.get("routes", ["0.0.0.0/0"])) if cfg else ["0.0.0.0/0"]
+
+    def get_dns(self) -> list[str]:
+        cfg = self._get_config()
+        return list(cfg.get("dns", [])) if cfg else []
