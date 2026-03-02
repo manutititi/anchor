@@ -2,7 +2,8 @@
 OTP seed management and vpn_uid assignment for the SPA flow.
 
 assign_vpn_uid:   atomically assign the next available UID to a user.
-                  UID=1 is reserved for the WireGuard server; user UIDs start at 2.
+                  uid=1 = WireGuard server, uid=2 = static admin peer (peer1).
+                  Dynamic users start at DYNAMIC_UID_MIN (3).
 generate_otp_seed: create a new TOTP seed, encrypt it, store in users collection.
 get_otp_seed:     decrypt and return the plaintext seed for a user.
 verify_otp:       validate a 6-digit TOTP code (valid_window=1, ±30 s).
@@ -13,18 +14,35 @@ from core.utils import now_tz
 from db.client import get_collection
 from vault.crypto import decrypt, encrypt
 
+# UIDs below this value are reserved:
+#   uid=1 → WireGuard server (10.x.x.1)
+#   uid=2 → static admin backdoor peer / linuxserver PEERS=peer1 (10.x.x.2)
+DYNAMIC_UID_MIN = 3
+
 
 def assign_vpn_uid(username: str) -> int:
     """
     Return the existing VPN UID for username, or atomically assign the next one.
-    UID=1 is reserved for the WireGuard server; user UIDs start at 2.
+    Existing UIDs below DYNAMIC_UID_MIN are treated as stale (reserved range)
+    and replaced with a fresh assignment from the counter.
     """
-    # Reuse existing uid on re-provision so the IP stays stable
+    # Reuse existing uid on re-provision so the IP stays stable —
+    # but only if it falls in the valid dynamic range.
     user_doc = get_collection("users").find_one({"username": username}, {"vpn_uid": 1})
     if user_doc and user_doc.get("vpn_uid"):
-        return int(user_doc["vpn_uid"])
+        existing = int(user_doc["vpn_uid"])
+        if existing >= DYNAMIC_UID_MIN:
+            return existing
+        # Stale uid in the reserved range (e.g. uid=2 assigned before peer1
+        # reservation was introduced). Clear it and fall through to assign a
+        # fresh one from the counter.
+        get_collection("users").update_one(
+            {"username": username},
+            {"$unset": {"vpn_uid": "", "vpn_uid_assigned_at": ""}},
+        )
 
-    # Atomically get the next counter value
+    # Atomically get the next counter value.
+    # init-mongo.js seeds seq=1 so the first $inc → seq=2 → uid=3.
     from pymongo import ReturnDocument
     counter_doc = get_collection("vpn_uid_counter").find_one_and_update(
         {"_id": "vpn_uid"},
@@ -32,8 +50,22 @@ def assign_vpn_uid(username: str) -> int:
         upsert=True,
         return_document=ReturnDocument.AFTER,
     )
-    # seq starts at 0 before the first increment; +1 → first user gets UID=2
     uid = int(counter_doc["seq"]) + 1
+
+    # Ensure we never hand out a reserved uid (safety net for edge cases
+    # where the counter itself starts at an unexpected value).
+    if uid < DYNAMIC_UID_MIN:
+        # Force the counter past the reserved range and retry.
+        get_collection("vpn_uid_counter").update_one(
+            {"_id": "vpn_uid"},
+            {"$set": {"seq": DYNAMIC_UID_MIN - 1}},
+        )
+        counter_doc = get_collection("vpn_uid_counter").find_one_and_update(
+            {"_id": "vpn_uid"},
+            {"$inc": {"seq": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+        uid = int(counter_doc["seq"]) + 1
 
     get_collection("users").update_one(
         {"username": username},
