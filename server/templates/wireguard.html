@@ -162,17 +162,15 @@
         </div>
       </div>
 
-      <!-- ── VPN Users (provision) ────────────────────────────────── -->
+      <!-- ── Users & Leases (fusionado) ──────────────────────────── -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-200">
         <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
           <div class="flex items-center gap-2">
             <span class="text-base">🔑</span>
-            <div>
-              <span class="text-sm font-semibold text-gray-700">VPN Access — Users</span>
-              <span class="text-xs text-gray-400 ml-2">provision or revoke OTP seeds</span>
-            </div>
+            <span class="text-sm font-semibold text-gray-700">VPN Users</span>
+            <span class="text-xs text-gray-400 ml-1">access &amp; lease management</span>
           </div>
-          <button @click="loadVpnUsers()"
+          <button @click="loadVpnUsers(); loadLeases()"
                   class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
         </div>
         <div class="overflow-x-auto">
@@ -180,22 +178,28 @@
             <thead class="bg-gray-50 text-xs text-gray-400 uppercase tracking-wider">
               <tr>
                 <th class="px-5 py-2.5 text-left">User</th>
-                <th class="px-5 py-2.5 text-left">Groups</th>
                 <th class="px-5 py-2.5 text-left">VPN UID</th>
-                <th class="px-5 py-2.5 text-left">OTP Seed</th>
+                <th class="px-5 py-2.5 text-left">OTP</th>
+                <th class="px-5 py-2.5 text-left">IP</th>
+                <th class="px-5 py-2.5 text-left">State</th>
+                <th class="px-5 py-2.5 text-left">Expires</th>
                 <th class="px-5 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
               <template x-if="vpnUsers.length === 0">
                 <tr>
-                  <td colspan="5" class="px-5 py-6 text-center text-gray-400 text-sm">No users found</td>
+                  <td colspan="7" class="px-5 py-6 text-center text-gray-400 text-sm">No users found</td>
                 </tr>
               </template>
               <template x-for="u in vpnUsers" :key="u.username">
-                <tr class="hover:bg-gray-50/50">
-                  <td class="px-5 py-3 font-medium text-gray-800" x-text="u.username"></td>
-                  <td class="px-5 py-3 text-xs text-gray-400" x-text="u.groups.join(', ')"></td>
+                <tr class="hover:bg-gray-50/50" x-data="{ get lease() { return leaseFor(u.username); } }">
+                  <!-- User + groups -->
+                  <td class="px-5 py-3">
+                    <div class="font-medium text-gray-800" x-text="u.username"></div>
+                    <div class="text-xs text-gray-400" x-text="u.groups.join(', ')"></div>
+                  </td>
+                  <!-- VPN UID -->
                   <td class="px-5 py-3">
                     <template x-if="u.vpn_uid">
                       <span class="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded"
@@ -205,14 +209,34 @@
                       <span class="text-gray-300 text-xs">—</span>
                     </template>
                   </td>
+                  <!-- OTP -->
                   <td class="px-5 py-3">
                     <template x-if="u.has_vpn_seed">
-                      <span class="text-xs text-green-600 font-medium">✔ Configured</span>
+                      <span class="text-xs text-green-600 font-medium">✔</span>
                     </template>
                     <template x-if="!u.has_vpn_seed">
-                      <span class="text-xs text-gray-300">—</span>
+                      <span class="text-gray-300 text-xs">—</span>
                     </template>
                   </td>
+                  <!-- IP from lease -->
+                  <td class="px-5 py-3 font-mono text-xs text-gray-600"
+                      x-text="lease ? lease.assigned_ip : '—'"></td>
+                  <!-- Lease state -->
+                  <td class="px-5 py-3">
+                    <template x-if="lease && lease.state === 'active'">
+                      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">active</span>
+                    </template>
+                    <template x-if="lease && lease.state === 'onboarding'">
+                      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">onboarding</span>
+                    </template>
+                    <template x-if="!lease">
+                      <span class="text-gray-300 text-xs">—</span>
+                    </template>
+                  </td>
+                  <!-- Expires -->
+                  <td class="px-5 py-3 text-xs text-gray-400"
+                      x-text="lease ? fmtExpiry(lease.expires_at) : '—'"></td>
+                  <!-- Actions -->
                   <td class="px-5 py-3 text-right">
                     <div class="flex items-center justify-end gap-3">
                       <button @click="provisionUser(u.username)"
@@ -222,61 +246,17 @@
                       </button>
                       <template x-if="u.has_vpn_seed">
                         <button @click="revokeUserOtp(u.username)"
-                                class="text-xs text-red-500 hover:text-red-700 font-medium">
+                                class="text-xs text-orange-500 hover:text-orange-700 font-medium">
                           Revoke OTP
                         </button>
                       </template>
+                      <template x-if="lease">
+                        <button @click="revokeAdmin(u.username)"
+                                class="text-xs text-red-500 hover:text-red-700 font-medium">
+                          Revoke Lease
+                        </button>
+                      </template>
                     </div>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- ── Active Leases (compact) ──────────────────────────────── -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
-          <div class="flex items-center gap-2">
-            <span class="text-base">📋</span>
-            <span class="text-sm font-semibold text-gray-700">Active Leases</span>
-          </div>
-          <button @click="loadLeases()"
-                  class="text-xs text-blue-600 hover:text-blue-800">Refresh</button>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-xs text-gray-400 uppercase tracking-wider">
-              <tr>
-                <th class="px-5 py-2.5 text-left">User</th>
-                <th class="px-5 py-2.5 text-left">State</th>
-                <th class="px-5 py-2.5 text-left">Assigned IP</th>
-                <th class="px-5 py-2.5 text-left">Expires</th>
-                <th class="px-5 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-              <template x-if="leases.length === 0">
-                <tr>
-                  <td colspan="5" class="px-5 py-5 text-center text-gray-400 text-sm">No active leases</td>
-                </tr>
-              </template>
-              <template x-for="l in leases" :key="l.uid">
-                <tr class="hover:bg-gray-50/50">
-                  <td class="px-5 py-2.5 font-medium text-gray-800 text-xs" x-text="l.uid"></td>
-                  <td class="px-5 py-2.5">
-                    <span :class="l.state === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
-                          class="text-xs font-medium px-2 py-0.5 rounded-full"
-                          x-text="l.state || 'active'"></span>
-                  </td>
-                  <td class="px-5 py-2.5 font-mono text-xs text-gray-600" x-text="l.assigned_ip"></td>
-                  <td class="px-5 py-2.5 text-xs text-gray-400" x-text="fmtExpiry(l.expires_at)"></td>
-                  <td class="px-5 py-2.5 text-right">
-                    <button @click="revokeAdmin(l.uid)"
-                            class="text-xs text-red-500 hover:text-red-700 font-medium">
-                      Revoke
-                    </button>
                   </td>
                 </tr>
               </template>
@@ -811,13 +791,17 @@ function vpnPage() {
       } catch { /* ignore */ }
     },
 
+    leaseFor(username) {
+      return this.leases.find(l => l.uid === username) || null;
+    },
+
     async revokeAdmin(uid) {
       if (!confirm(`Revoke VPN lease for '${uid}'?`)) return;
       await fetch('/vpn/admin/leases/' + encodeURIComponent(uid), {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + this.token() },
       });
-      await Promise.all([this.loadLeases(), this.loadPool(), this.loadLivePeers()]);
+      await Promise.all([this.loadLeases(), this.loadPool(), this.loadLivePeers(), this.loadVpnUsers()]);
     },
 
     // ── Admin: VPN users ─────────────────────────────────────────
@@ -864,7 +848,7 @@ function vpnPage() {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + this.token() },
       });
-      await this.loadVpnUsers();
+      await Promise.all([this.loadVpnUsers(), this.loadLeases(), this.loadLivePeers()]);
     },
 
     async copyToken(text) {
