@@ -19,11 +19,12 @@ import json
 import pyotp
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from auth.middleware import get_current_groups, get_current_user
 from config import settings
+from core.logger import LogEntry
 from core.utils import now_tz
 from db.client import get_collection
 from vault.crypto import encrypt
@@ -117,6 +118,7 @@ def _do_revoke(lease: dict) -> None:
 @router.post("/request", status_code=201, tags=["vpn"])
 def request_vpn(
     body: VPNRequestBody,
+    request: Request,
     current_user: str = Depends(get_current_user),
 ):
     """
@@ -194,7 +196,7 @@ def request_vpn(
         "vault_path": vault_path,
     })
 
-    return JSONResponse(status_code=201, content={
+    response = JSONResponse(status_code=201, content={
         "assigned_ip": assigned_ip,
         "server_pubkey": server_pubkey,
         "server_endpoint": server_endpoint,
@@ -202,6 +204,23 @@ def request_vpn(
         "vault_path": vault_path,
         "wg_conf_partial": wg_conf,
     })
+    LogEntry.from_request(
+        request=request, response=response,
+        resource="secret", resource_id=vault_path,
+        action="create", success=True,
+        extra={"context": "vpn_request", "assigned_ip": assigned_ip},
+    ).save_default()
+    LogEntry.from_request(
+        request=request, response=response,
+        resource="vpn_lease", resource_id=current_user,
+        action="grant", success=True,
+        extra={
+            "assigned_ip": assigned_ip,
+            "lease_hours": lease_hours,
+            "expires_at": expires_at.isoformat(),
+        },
+    ).save_default()
+    return response
 
 
 @router.get("/status", tags=["vpn"])
@@ -315,7 +334,7 @@ def admin_pool_status(admin: str = Depends(_require_admin)):
 # ---------------------------------------------------------------------------
 
 @router.post("/admin/users/{username}/otp", status_code=201, tags=["vpn"])
-def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
+def admin_generate_otp(username: str, request: Request, admin: str = Depends(_require_admin)):
     """
     Admin: provision WireGuard peer for a user.
 
@@ -465,11 +484,35 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
             json.dumps(token_payload).encode()
         ).decode()
 
-        return JSONResponse(status_code=201, content={
+        response = JSONResponse(status_code=201, content={
             "vpn_uid": vpn_uid,
             "provisioning_url": provisioning_url,
             "provision_token": provision_token,
         })
+        LogEntry.from_request(
+            request=request, response=response,
+            resource="secret", resource_id=f"vpn/{username}",
+            action="create", success=True,
+            extra={
+                "context": "vpn_admin_provision",
+                "provisioned_for": username,
+                "assigned_ip": assigned_ip,
+                "vpn_uid": vpn_uid,
+            },
+        ).save_default()
+        LogEntry.from_request(
+            request=request, response=response,
+            resource="vpn_lease", resource_id=username,
+            action="grant", success=True,
+            extra={
+                "assigned_ip": assigned_ip,
+                "vpn_uid": vpn_uid,
+                "lease_hours": lease_hours,
+                "expires_at": expires_at.isoformat(),
+                "provisioned_by": admin,
+            },
+        ).save_default()
+        return response
 
     except HTTPException:
         raise
