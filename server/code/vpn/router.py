@@ -51,8 +51,13 @@ def _get_provider():
     return WireGuardProvider()
 
 
-def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "") -> None:
-    """Upsert a vault secret using the same flat schema as vault/router.py."""
+def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "", owner: str | None = None) -> None:
+    """Upsert a vault secret using the same flat schema as vault/router.py.
+
+    uid   — actor for audit fields (created_by / updated_by).
+    owner — user who owns/can access the secret (defaults to uid).
+    """
+    actual_owner = owner or uid
     col = get_collection("ref")
     encrypted = encrypt(plaintext, path)
     now = now_tz()
@@ -68,13 +73,14 @@ def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "
                 "last_updated": now,
                 "updated_by": uid,
                 "version": existing.get("version", 1) + 1,
+                "users": [actual_owner],
             }},
         )
     else:
         col.insert_one({
             "type": "secret",
             "id": path,
-            "description": description or f"WireGuard VPN config for {uid}",
+            "description": description or f"WireGuard VPN config for {actual_owner}",
             "encoding": encrypted["encoding"],
             "value": encrypted["value"],
             "iv": encrypted["iv"],
@@ -84,7 +90,7 @@ def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "
             "last_updated": now,
             "created_by": uid,
             "updated_by": uid,
-            "users": [uid],
+            "users": [actual_owner],
             "groups": [],
             "allow_group_edit": False,
         })
@@ -395,6 +401,7 @@ def admin_generate_otp(username: str, admin: str = Depends(_require_admin)):
             wg_conf,
             admin,
             description=f"WireGuard peer config for {username}",
+            owner=username,
         )
 
         token_payload = {
