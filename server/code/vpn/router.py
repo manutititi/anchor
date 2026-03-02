@@ -54,8 +54,8 @@ def _get_provider():
 def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "", owner: str | None = None) -> None:
     """Upsert a vault secret using the same flat schema as vault/router.py.
 
-    uid   — actor for audit fields (created_by / updated_by).
-    owner — user who owns/can access the secret (defaults to uid).
+    uid   — actor recorded in updated_by (the admin performing the action).
+    owner — user who owns the secret (created_by + users[]); defaults to uid.
     """
     actual_owner = owner or uid
     col = get_collection("ref")
@@ -73,6 +73,7 @@ def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "
                 "last_updated": now,
                 "updated_by": uid,
                 "version": existing.get("version", 1) + 1,
+                "created_by": actual_owner,
                 "users": [actual_owner],
             }},
         )
@@ -88,7 +89,7 @@ def _save_vault_secret(path: str, plaintext: str, uid: str, description: str = "
             "version": 1,
             "created_at": now,
             "last_updated": now,
-            "created_by": uid,
+            "created_by": actual_owner,
             "updated_by": uid,
             "users": [actual_owner],
             "groups": [],
