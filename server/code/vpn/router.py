@@ -627,6 +627,24 @@ def admin_update_vpn_settings(
     if mongo_op:
         users_col.update_one({"username": username}, mongo_op)
 
+    # Sync expires_at on the active lease so the new policy takes effect immediately
+    leases_col = get_collection("vpn_leases")
+    active_lease = leases_col.find_one({"uid": username, "state": "active"})
+    if active_lease:
+        updated_user = dict(user)
+        if body.vpn_lease_minutes is None:
+            updated_user.pop("vpn_lease_minutes", None)
+        else:
+            updated_user["vpn_lease_minutes"] = body.vpn_lease_minutes
+        provider = _get_provider()
+        lease_secs = provider.get_effective_lease_seconds(updated_user)
+        now = datetime.now(timezone.utc)
+        new_expires_at = None if lease_secs is None else (now + timedelta(seconds=lease_secs)).isoformat()
+        leases_col.update_one(
+            {"_id": active_lease["_id"]},
+            {"$set": {"expires_at": new_expires_at}},
+        )
+
     return JSONResponse(content={
         "detail": f"VPN settings updated for '{username}'",
         "vpn_lease_minutes": body.vpn_lease_minutes,

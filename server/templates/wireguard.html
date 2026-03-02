@@ -1044,7 +1044,7 @@ function vpnPage() {
         const data = await res.json();
         this.settingsOk = res.ok;
         this.settingsMsg = data.detail || (res.ok ? 'Saved.' : 'Failed.');
-        if (res.ok) await this.loadVpnUsers();
+        if (res.ok) await Promise.all([this.loadVpnUsers(), this.loadLeases(), this.loadLivePeers()]);
       } catch (e) {
         this.settingsOk = false;
         this.settingsMsg = 'Network error: ' + e.message;
