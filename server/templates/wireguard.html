@@ -576,13 +576,16 @@
           <button @click="provModal = null" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
         </div>
         <div class="px-6 py-5 space-y-5">
+
+          <!-- Step 1: provision token -->
           <div>
-            <p class="text-xs font-medium text-gray-600 mb-2">
-              1. Send this token to the user. They paste it into:
-              <code class="bg-gray-100 px-1 rounded">anc vpn init &lt;token&gt;</code>
+            <p class="text-xs font-medium text-gray-600 mb-1">
+              <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold mr-1">1</span>
+              Send this token to the user — they run:
+              <code class="bg-gray-100 px-1 rounded">anc vpn init &lt;token&gt; '&lt;totp-url&gt;'</code>
             </p>
             <div class="relative">
-              <textarea x-text="provModal.token" readonly rows="4"
+              <textarea x-text="provModal.token" readonly rows="3"
                 class="w-full font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none select-all"
                 @click="$el.select()"></textarea>
               <button @click="copyToken(provModal.token)"
@@ -590,25 +593,42 @@
                       x-text="tokenCopied ? '✔ Copied' : 'Copy'">
               </button>
             </div>
+            <p class="text-xs text-gray-400 mt-1">
+              The token is <strong>zero-secret</strong> — no seeds, no private keys. Share freely.
+            </p>
           </div>
+
+          <!-- Step 2: TOTP QR -->
           <div>
             <p class="text-xs font-medium text-gray-600 mb-2">
-              2. Send this TOTP URL so they can add it to their authenticator app:
+              <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold mr-1">2</span>
+              Share the TOTP secret — scan the QR or copy the URL:
             </p>
-            <div class="relative">
-              <input type="text" :value="provModal.provisioning_url" readonly
-                     class="w-full font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none"
-                     @click="$el.select()" />
-              <button @click="copyToken(provModal.provisioning_url)"
-                      class="absolute top-1/2 -translate-y-1/2 right-2 text-xs px-2 py-1 rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-600"
-                      x-text="tokenCopied ? '✔ Copied' : 'Copy'">
-              </button>
+            <!-- QR code (Google Charts) -->
+            <div class="flex gap-4 items-start">
+              <template x-if="provModal.provisioning_url">
+                <img :src="'https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=' + encodeURIComponent(provModal.provisioning_url)"
+                     alt="TOTP QR code"
+                     class="w-40 h-40 rounded border border-gray-200 shrink-0" />
+              </template>
+              <div class="flex-1 min-w-0">
+                <div class="relative">
+                  <input type="text" :value="provModal.provisioning_url" readonly
+                         class="w-full font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 pr-14 focus:outline-none"
+                         @click="$el.select()" />
+                  <button @click="copyToken(provModal.provisioning_url)"
+                          class="absolute top-1/2 -translate-y-1/2 right-2 text-xs px-2 py-1 rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-600"
+                          x-text="tokenCopied ? '✔' : 'Copy'">
+                  </button>
+                </div>
+                <p class="text-xs text-gray-400 mt-2 leading-relaxed">
+                  Each user gets a unique TOTP seed stored encrypted on the server.
+                  The seed never leaves the server — only this setup URL is shared once.
+                </p>
+              </div>
             </div>
           </div>
-          <p class="text-xs text-gray-400">
-            The token contains the TOTP seed, VPN UID, server endpoint, knock port, and WireGuard keys.
-            Valid until the OTP seed is revoked.
-          </p>
+
         </div>
         <div class="px-6 pb-5">
           <button @click="provModal = null"

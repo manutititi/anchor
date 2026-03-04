@@ -350,17 +350,14 @@ def admin_pool_status(admin: str = Depends(_require_admin)):
 @router.post("/admin/users/{username}/otp", status_code=201, tags=["vpn"])
 def admin_generate_otp(username: str, request: Request, admin: str = Depends(_require_admin)):
     """
-    Admin: provision WireGuard peer for a user.
+    Admin: provision TOTP seed for a user (SPA V2).
 
-    Generates a WireGuard keypair server-side, registers the peer on the
-    sidecar, creates an active lease, and saves the full wg.conf as a vault
-    secret (vpn/{username}) so the user can see their peer config in the UI.
+    Generates a TOTP seed and assigns a vpn_uid.  The provision_token
+    contains ONLY public information (no secrets) — the user scans the
+    TOTP QR separately and runs: anc vpn init <token> → anc vpn up
 
-    Also generates a TOTP seed so the user can scan the QR into their
-    authenticator app (used when the CLI re-authenticates via SPA knock).
-
-    The admin shares the provision_token with the user out-of-band.
-    The user runs: anc vpn init <token>  →  anc vpn up
+    The actual WireGuard peer is registered only when the user sends a
+    valid SPA knock (UDP), keeping the server invisible until then.
 
     Returns:
     - provisioning_url: otpauth:// URI — scan with any TOTP app
@@ -405,24 +402,19 @@ def admin_generate_otp(username: str, request: Request, admin: str = Depends(_re
             server_endpoint = f"{server_endpoint}:51820"
         knock_host = server_endpoint.split(":")[0] if ":" in server_endpoint else server_endpoint
 
-        # Generate WireGuard keypair server-side
-        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-        from cryptography.hazmat.primitives.serialization import (
-            Encoding, NoEncryption, PrivateFormat, PublicFormat,
-        )
-        priv = X25519PrivateKey.generate()
-        wg_privkey = base64.b64encode(
-            priv.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-        ).decode()
-        wg_pubkey = base64.b64encode(
-            priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        ).decode()
+        # SPA V2: include the server's SPA public key so the client can
+        # encrypt knock packets via ECDH.  Zero secrets in the token.
+        spa_pubkey_b64 = settings.SPA_PUBKEY
+        if not spa_pubkey_b64 and settings.SPA_PRIVKEY:
+            from vpn.spa import load_privkey, derive_pubkey
+            spa_pubkey_b64 = derive_pubkey(load_privkey(settings.SPA_PRIVKEY))
 
-        # Deterministic IP from vpn_uid
+        # Deterministic IP (for informational purposes only — the knock
+        # will re-derive it server-side)
         from vpn.spa import uid_to_ip
         assigned_ip = uid_to_ip(vpn_uid, subnet)
 
-        # Remove any existing peer for this user before re-provisioning
+        # Clean up any existing lease (re-provision = fresh start)
         leases_col = get_collection("vpn_leases")
         existing_lease = leases_col.find_one({"uid": username})
         if existing_lease and existing_lease.get("pubkey"):
@@ -432,68 +424,18 @@ def admin_generate_otp(username: str, request: Request, admin: str = Depends(_re
                 pass
         leases_col.delete_one({"uid": username})
 
-        # Register peer on sidecar
-        try:
-            sidecar.add_peer(wg_pubkey, assigned_ip, username)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=502, detail=f"Sidecar error registering peer: {exc}")
-
-        # Create active lease — respect per-user duration if set
-        user_doc = get_collection("users").find_one({"username": username}) or {}
-        lease_secs = provider.get_effective_lease_seconds(user_doc)
-        now = datetime.now(timezone.utc)
-        expires_at_iso = _make_expires_at(lease_secs)
-        leases_col.insert_one({
-            "uid": username,
-            "pubkey": wg_pubkey,
-            "assigned_ip": assigned_ip,
-            "peer_name": username,
-            "state": "active",
-            "server_pubkey": server_pubkey,
-            "expires_at": expires_at_iso,
-            "created_at": now.isoformat(),
-            "vault_path": f"vpn/{username}",
-        })
-
-        # Build full wg.conf and save as vault secret
-        routes = provider.get_routes()
-        dns_servers = provider.get_dns()
-        dns_line = f"DNS = {', '.join(dns_servers)}\n" if dns_servers else ""
-        wg_conf = (
-            f"[Interface]\n"
-            f"PrivateKey = {wg_privkey}\n"
-            f"Address = {assigned_ip}/32\n"
-            f"{dns_line}"
-            f"\n"
-            f"[Peer]\n"
-            f"PublicKey = {server_pubkey}\n"
-            f"Endpoint = {server_endpoint}\n"
-            f"AllowedIPs = {', '.join(routes)}\n"
-            f"PersistentKeepalive = 25\n"
-        )
-        _save_vault_secret(
-            f"vpn/{username}",
-            wg_conf,
-            admin,
-            description=f"WireGuard peer config for {username}",
-            owner=username,
-        )
-
+        # provision_token — ZERO secrets, safe to transmit
         token_payload = {
             "uid": username,
             "vpn_uid": vpn_uid,
-            "seed_b32": seed,
             "knock_host": knock_host,
             "knock_port": knock_port,
+            "spa_pubkey": spa_pubkey_b64,
             "subnet": subnet,
             "server_vpn_uid": server_vpn_uid,
             "server_endpoint": server_endpoint,
             "server_pubkey": server_pubkey,
             "server_port": settings.VPN_SERVER_PORT,
-            "wg_privkey": wg_privkey,
-            "wg_pubkey": wg_pubkey,
-            "assigned_ip": assigned_ip,
-            "routes": routes,
         }
         provision_token = base64.urlsafe_b64encode(
             json.dumps(token_payload).encode()
@@ -501,6 +443,7 @@ def admin_generate_otp(username: str, request: Request, admin: str = Depends(_re
 
         response = JSONResponse(status_code=201, content={
             "vpn_uid": vpn_uid,
+            "assigned_ip": assigned_ip,
             "provisioning_url": provisioning_url,
             "provision_token": provision_token,
         })
@@ -513,18 +456,6 @@ def admin_generate_otp(username: str, request: Request, admin: str = Depends(_re
                 "provisioned_for": username,
                 "assigned_ip": assigned_ip,
                 "vpn_uid": vpn_uid,
-            },
-        ).save_default()
-        LogEntry.from_request(
-            request=request, response=response,
-            resource="vpn_lease", resource_id=username,
-            action="grant", success=True,
-            extra={
-                "assigned_ip": assigned_ip,
-                "vpn_uid": vpn_uid,
-                "lease_seconds": lease_secs,
-                "expires_at": expires_at_iso,
-                "provisioned_by": admin,
             },
         ).save_default()
         return response

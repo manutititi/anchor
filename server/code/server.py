@@ -27,18 +27,22 @@ async def lifespan(app: FastAPI):
     get_client()  # Verify MongoDB is reachable at startup
     asyncio.create_task(start_janitor())
 
-    # Start SPA knock listener if WireGuard integration has knock_port configured
+    # Start SPA V2 knock listener if WireGuard integration is configured
     try:
         from integrations.wireguard.provider import WireGuardProvider
         from config import settings
+        from vpn.spa import load_privkey
         provider = WireGuardProvider()
-        if provider.is_enabled():
+        if provider.is_enabled() and settings.SPA_PRIVKEY:
             wg_cfg = provider._get_config() or {}
             knock_port = settings.VPN_KNOCK_PORT or int(wg_cfg.get("knock_port", 0))
             if knock_port > 0:
                 subnet = wg_cfg.get("subnet", "10.13.13.0/24")
+                spa_privkey = load_privkey(settings.SPA_PRIVKEY)
                 asyncio.ensure_future(
-                    start_knock_listener(settings.VPN_KNOCK_HOST, knock_port, subnet)
+                    start_knock_listener(
+                        settings.VPN_KNOCK_HOST, knock_port, subnet, spa_privkey
+                    )
                 )
     except Exception:
         pass  # WireGuard not configured — skip knock listener
