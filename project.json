@@ -1,0 +1,695 @@
+{
+  "project": {
+    "name": "anchor",
+    "cli_alias": "anc",
+    "description": "Modular CLI and optional server for managing paths, scripts, files, secrets, environments, and infrastructure workflows through anchors — executable, metadata-rich JSON objects.",
+    "philosophy": "Treat configuration, environments, and actions as executable knowledge. Every anchor is portable, inspectable, and composable.",
+    "version_notes": "Evolving from a shell utility to a complete DevOps/developer tool.",
+    "install_dir": "~/.anchors"
+  },
+
+  "stack": {
+    "languages": ["Python 3", "Bash/Shell", "YAML", "JSON"],
+    "frameworks": ["FastAPI", "Uvicorn (ASGI)"],
+    "databases": ["MongoDB 6.0"],
+    "key_python_libs": {
+      "CLI": ["argparse", "jinja2", "simpleeval", "requests", "ldap3", "PyYAML", "pycryptodome"],
+      "server": ["fastapi", "uvicorn", "pymongo", "pydantic", "python-jose", "ldap3", "pycryptodome"]
+    },
+    "infrastructure": ["Docker", "Docker Compose", "Ansible", "LDAP / Active Directory"]
+  },
+
+  "entry_points": {
+    "bash_wrapper": "functions/anchors.sh — defines the anc() shell function, routes all subcommands, calls Python CLI",
+    "python_cli": "core/main.py — argparse-based entry point, registers all subcommands",
+    "fastapi_server": "server/code/server.py — FastAPI app, port 17017",
+    "docker": "server/docker-compose.yml — anc-server (FastAPI) + mongodb services"
+  },
+
+  "installation": {
+    "script": "install.sh",
+    "steps": [
+      "Creates ~/.anchors directory tree",
+      "Installs jq system dependency",
+      "Copies project files to ~/.anchors",
+      "Appends ANCHOR_HOME, ANCHOR_DIR, PATH, and function sources to .bashrc/.zshrc",
+      "Creates Python venv at ~/.anchors/venv",
+      "Installs requirements.txt into venv"
+    ],
+    "uninstall_script": "uninstall.sh",
+    "env_vars": {
+      "ANCHOR_HOME": "Installation directory (~/.anchors)",
+      "ANCHOR_DIR": "Anchor JSON storage (~/.anchors/data)",
+      "ENV_DIR": "Environment anchors (defaults to ANCHOR_DIR)",
+      "URL_DIR": "URL anchors (defaults to ANCHOR_DIR)",
+      "ANCHOR_ROOT": "Root of installation"
+    }
+  },
+
+  "directory_structure": {
+    "core/": "Python CLI source — commands, utils, main entry point",
+    "core/main.py": "Argparse setup; registers all subcommands; resolves env vars",
+    "core/commands/": "One module (or sub-package) per CLI subcommand",
+    "core/commands/set/": "Router + sub-handlers for anchor creation (local, ssh, env, url, ldap, ansible, workflow, server)",
+    "core/commands/ls.py": "List + filter anchors with color-coded output",
+    "core/commands/delete.py": "Delete anchors by name or filter",
+    "core/commands/meta.py": "Update anchor metadata fields",
+    "core/commands/url.py": "Manage URL anchors — add routes, test, call HTTP endpoints",
+    "core/commands/cr.py": "Capture directory/file snapshot into a files anchor",
+    "core/commands/rc.py": "Restore file anchor back to filesystem",
+    "core/commands/wf.py": "Execute declarative workflow anchors (590 lines)",
+    "core/commands/push.py": "Upload anchors to server",
+    "core/commands/pull.py": "Download anchors from server",
+    "core/commands/server.py": "Server auth, URL config, remote ls, status",
+    "core/commands/ldap.py": "LDAP auth, export, import",
+    "core/commands/sible.py": "Run Ansible tasks against SSH anchors (299 lines)",
+    "core/commands/secret/": "Secret management — ls, get, push, update, del",
+    "core/commands/edit.py": "Open anchor JSON in editor",
+    "core/commands/doc.py": "Generate documentation from anchors",
+    "core/utils/colors.py": "Terminal color helpers (red, green, yellow, blue, cyan, magenta, gray, bold, dim)",
+    "core/utils/filter.py": "Client-side filter expression parser → Python lambdas",
+    "core/utils/path.py": "Path resolution utilities",
+    "core/utils/secrets.py": "Resolve [[secret:id]] markers by calling server",
+    "core/utils/docker_meta.py": "Detect Docker metadata in cwd",
+    "core/utils/server_utils.py": "Server connection helpers",
+    "core/utils/templates.py": "Template rendering helpers",
+    "core/help/": "Plain-text help strings for each command",
+    "functions/": "Legacy Bash function wrappers (sourced by shell)",
+    "functions/anchors.sh": "Main anc() function — routes to Python or other shell functions",
+    "anchor/handlers/__init__.py": "Handler registry: Handler ABC, _REGISTRY dict, register(type, handler), get_handler(type). Built-ins registered at import.",
+    "anchor/handlers/local.py": "LocalHandler — prints expanded path to stdout; shell wrapper does cd.",
+    "anchor/handlers/ssh.py": "SshHandler — native ssh client + ssh-agent temporal: key fetched from vault → ssh-add stdin (no disk) → ssh with SSH_AUTH_SOCK → kill agent. Password via sshpass -d fd.",
+    "anchor/utils/secrets.py": "resolve_field(val, client) + resolve_secrets(text, client): replace [[secret:path]] markers by calling GET /vault/{path}. In-memory only, per-call cache.",
+    "anchor/commands/go.py": "anc go <name> (dispatch) + anc _type <name> (internal, prints type) + --pubkey flag (extract public key from vault secret via ssh-keygen -y).",
+    "anchor/shell/anc.sh": "Shell function wrapper. For local anchors: reads JSON with jq or python3 -c (no Python CLI startup, near-instant cd). For ssh: anc go. Must be sourced in .bashrc/.zshrc.",
+    "docs/security/ssh.md": "Security documentation: vault-based key storage, ssh-agent injection flow, security properties table, residual risks, usage guide.",
+    "completions/anc": "Bash tab-completion for the anc command",
+    "data/anc.json": "Default/example anchor JSON",
+    "scripts/hello.sh": "Example script anchor",
+    "templates/": "Ansible YAML playbook templates (install_packages, create_users, mount_sshfs, update_upgrade)",
+    "server/": "Optional FastAPI + MongoDB server",
+    "server/code/server.py": "FastAPI app — lifespan, all routers, AuthMiddleware",
+    "server/code/config.py": "pydantic-settings — all env vars, required: MONGO_URI, MONGO_DB, JWT_SECRET, VAULT_MASTER_KEY",
+    "server/code/db/client.py": "Singleton MongoClient — get_client(), get_db(), get_collection(name)",
+    "server/code/auth/middleware.py": "AuthMiddleware — JWT + service token (anc_) + X-API-Key header",
+    "server/code/auth/token.py": "JWT create_token() / decode_token() using settings",
+    "server/code/auth/local.py": "Local users — bcrypt/passlib, create_user(), authenticate_local()",
+    "server/code/auth/service_token.py": "API keys with scopes (vault:read/write, anchors:read/write, admin)",
+    "server/code/auth/ldap.py": "ldap_authenticate(), get_user_groups() — guarded by LDAP_AUTH_ENABLED",
+    "server/code/auth/router.py": "POST /auth/login (auto), /auth/login/local, /auth/login/ldap",
+    "server/code/vault/crypto.py": "AES-256-GCM + HKDF-SHA256 per-secret key derivation",
+    "server/code/vault/models.py": "Pydantic models: SecretCreate, SecretUpdate, SecretInfo",
+    "server/code/vault/access.py": "is_visible(), can_edit(), can_delete() — group + scope checks",
+    "server/code/vault/versions.py": "Secret versioning — save_version(), get_version(), list_versions()",
+    "server/code/vault/router.py": "CRUD /vault/{path} + /ref/... compat aliases",
+    "server/code/anchors/router.py": "CRUD /anchors + /db/... compat aliases — MongoDB-only",
+    "server/code/ui/router.py": "Jinja2 page routes: /ui/login, /ui/secrets, /ui/users",
+    "server/templates/base.html": "Base layout: sidebar, nav, logout, Alpine.js shell",
+    "server/templates/login.html": "Login page — POST /auth/login, stores JWT in localStorage",
+    "server/templates/secrets.html": "Secrets CRUD UI — list, create, edit, delete, version history",
+    "server/templates/users.html": "User management UI (admins only) — list, create, delete",
+    "server/code/endpoints/health.py": "GET /health (liveness), GET /health/ready (readiness, K8s)",
+    "server/code/endpoints/admin.py": "POST/GET/DELETE /admin/tokens, POST/GET/DELETE /admin/users (admin group only)",
+    "server/code/endpoints/dashboard.py": "HTML dashboard showing all anchors",
+    "server/code/core/filter.py": "Filter expression → MongoDB query translator",
+    "server/code/core/logger.py": "LogEntry — structured audit log to MongoDB log collection",
+    "server/code/core/utils.py": "Server-side utilities (now_tz, matches_filter)",
+    "server/code/core/errors.py": "Standard error Pydantic models",
+    "server/anchors/": "Default server anchor configs",
+    "server/Dockerfile": "Python 3.11-slim image",
+    "server/docker-compose.yml": "anc-server (port 17017) + mongodb (port 27017)",
+    "server/init-mongo.js": "Creates MongoDB collections: anchor, ref, log",
+    "server/requirements.txt": "Server Python dependencies",
+    "install.sh": "Installation script",
+    "uninstall.sh": "Uninstallation script",
+    "requirements.txt": "CLI Python dependencies"
+  },
+
+  "anchor_types": {
+    "local": "Local filesystem path; captures Git branch/commit/dirty state and Docker metadata",
+    "ssh": "Remote SSH location with host, user, key/password",
+    "url": "HTTP/REST endpoint with named routes, auth headers, methods",
+    "env": "Environment variables sourced from a .env file",
+    "files": "Base64-encoded file/directory snapshot for restoration",
+    "ansible": "Ansible playbook tasks targeting SSH anchors",
+    "secret": "Encrypted reference to a secret stored on the server",
+    "ldap": "LDAP directory configuration anchor",
+    "docker": "Docker service / docker-compose configuration",
+    "workflow": "Declarative sequential task list"
+  },
+
+  "anchor_schema_example": {
+    "type": "local",
+    "name": "myproject",
+    "path": "~/myproject",
+    "groups": ["dev"],
+    "created_at": "ISO8601",
+    "git": {
+      "root": "abs path",
+      "branch": "main",
+      "commit": { "hash": "abc123", "author": "user", "date": "...", "message": "..." },
+      "is_dirty": false
+    },
+    "docker": { "active": true, "services": ["web", "db"] },
+    "note": "human-readable note",
+    "meta": { "env": "prod", "project": "web" }
+  },
+
+  "filter_expression_language": {
+    "description": "Used for both local (Python lambda) and server-side (MongoDB query) filtering",
+    "operators": {
+      "=": "exact match",
+      "!=": "not equal",
+      "~": "substring / contains",
+      "!~": "not contains / not regex"
+    },
+    "logical": ["AND", "OR"],
+    "nested_keys": "dot notation, e.g. endpoint.base_url=localhost",
+    "examples": [
+      "env=prod AND project=web",
+      "type~url OR type~env",
+      "env!=dev"
+    ]
+  },
+
+  "workflow_system": {
+    "file": "core/commands/wf.py",
+    "task_types": ["anc", "shell", "files", "api", "sleep", "watch", "set"],
+    "features": [
+      "Jinja2 template rendering for variables",
+      "Secret resolution via [[secret:id]] markers",
+      "Sequential execution with conditionals",
+      "Loops over lists/collections",
+      "Privilege escalation (auto-sudo for system paths)",
+      "Error handling: continue or fail"
+    ]
+  },
+
+  "secret_management": {
+    "encryption": "AES-256-GCM with HKDF-SHA256 key derivation (one key per secret, derived from VAULT_MASTER_KEY)",
+    "storage": "MongoDB ref collection (server-side)",
+    "versioning": "Up to 10 versions per secret stored in secret_versions collection",
+    "resolution": "[[secret:id]] markers resolved by core/utils/secrets.py at runtime",
+    "access_control": "User-level and group-level policies stored with each secret; scope-based for service tokens",
+    "cli_commands": ["secret ls", "secret get", "secret push", "secret update", "secret del"],
+    "kubernetes": "Service tokens (anc_...) can be injected via X-API-Key header in init containers"
+  },
+
+  "authentication": {
+    "methods": ["local (bcrypt/MongoDB)", "LDAP (optional)", "service tokens (API keys)"],
+    "token_expiry": "60 minutes (JWT)",
+    "token_payload": ["sub (username)", "groups", "token_type"],
+    "server_info_file": "~/.anchors/server/info.json — stores url and token",
+    "service_token_prefix": "anc_ — detected automatically in Bearer header or X-API-Key",
+    "service_token_scopes": ["vault:read", "vault:write", "anchors:read", "anchors:write", "admin"]
+  },
+
+  "server_api": {
+    "base_port": 17017,
+    "endpoints": {
+      "POST /auth/login": "Login (local or LDAP auto-detect) → JWT",
+      "POST /auth/login/local": "Force local auth → JWT",
+      "POST /auth/login/ldap": "Force LDAP auth → JWT",
+      "GET /health": "Liveness probe (MongoDB ping)",
+      "GET /health/ready": "Readiness probe (MongoDB + config)",
+      "GET /vault": "List secrets visible to user (?prefix=myapp/)",
+      "POST /vault/{path}": "Create secret",
+      "GET /vault/{path}": "Get secret plaintext (?version=N)",
+      "PUT /vault/{path}": "Update secret (creates new version)",
+      "DELETE /vault/{path}": "Delete secret",
+      "GET /vault/{path}/versions": "List version history",
+      "GET /anchors": "List anchors (MongoDB, filtered)",
+      "GET /anchors/{name}": "Get anchor",
+      "POST /anchors": "Create/upsert anchor",
+      "DELETE /anchors/{name}": "Delete anchor",
+      "POST /admin/tokens": "Create service token (admin only)",
+      "GET /admin/tokens": "List service tokens (admin only)",
+      "DELETE /admin/tokens/{id}": "Revoke service token (admin only)",
+      "POST /admin/users": "Create local user (admin only)",
+      "GET /dashboard": "HTML dashboard",
+      "GET /admin/users": "List local users (admin only, no password hashes)",
+      "DELETE /admin/users/{username}": "Delete a local user (admin only)",
+      "GET /ui": "Login page (redirects to /ui/login)",
+      "GET /ui/login": "Web login page",
+      "GET /ui/secrets": "Web secrets management UI",
+      "GET /ui/users": "Web user management UI (admins only)"
+    },
+    "deprecated_aliases": {
+      "GET /ref/list": "→ GET /vault",
+      "GET /ref/get/{id}": "→ GET /vault/{id}",
+      "POST /ref/set": "→ POST /vault/{id}",
+      "DELETE /ref/{id}": "→ DELETE /vault/{id}",
+      "POST /db/upload/{filename}": "→ POST /anchors",
+      "GET /db/list": "→ GET /anchors",
+      "GET /db/pull/{name}": "→ GET /anchors/{name}"
+    }
+  },
+
+  "known_issues_and_observations": {
+    "dual_implementation": "Many features are partially implemented in Bash (functions/) and Python (core/). The Bash layer calls Python for most operations but some logic is duplicated.",
+    "functions_dir_is_legacy": "The functions/ directory contains older Bash implementations that are increasingly superseded by anchor/ Python code.",
+    "no_tests": "No test directory or test files found in the project.",
+    "server_auth_optional": "Server integration and LDAP are optional; CLI works fully offline.",
+    "wf_py_large": "core/commands/wf.py is 590 lines — a primary refactor candidate.",
+    "sible_py_large": "core/commands/sible.py is 299 lines — secondary refactor candidate.",
+    "url_py_large": "core/commands/url.py is 287 lines — secondary refactor candidate.",
+    "jwt_secret_hardcoded": "docker-compose.yml has JWT_SECRET='super-secret-key' as default.",
+    "cd_requires_shell_shim": "Unix process isolation means a subprocess cannot change the parent shell's cwd. The anc shell function in anchor/shell/anc.sh is mandatory for local anchor navigation. For local anchors it reads the JSON directly (jq or python3 -c) to avoid any Python CLI startup.",
+    "ssh_agent_requires_openssh_client": "SshHandler uses ssh-agent + ssh-add for in-memory key injection. Requires openssh-client (ssh-agent, ssh-add, ssh binaries). sshpass is optional for password auth injection."
+  },
+
+  "refactor_priorities": {
+    "note": "This section should be updated by each refactor chat session with decisions and progress.",
+    "high": [
+      "Add tab-completion for the new anchor/ CLI (typer --install-completion)",
+      "Add tests for anchor/ package — zero coverage on new code",
+      "Migrate/deprecate old core/ and functions/ after new CLI is stable"
+    ],
+    "integrations_next": [
+      "Manual testing of LDAP integration end-to-end (login, group sync, test endpoint)",
+      "Add /admin/users source field so UI shows ldap vs local users clearly",
+      "Future providers: SAML, OIDC — add to registry.py and ENCRYPTED_FIELDS map",
+      "WireGuard Fase 2–4: DONE — see session 19 in refactor_log"
+    ],
+    "medium": [
+      "Port remaining commands to anchor/: ls --remote, wf, sible, url, del, meta, edit",
+      "Add anc env <name> command (source .env file — requires shell shim like local)",
+      "Consolidate filter logic: anchor/utils/filter.py now canonical (no eval)",
+      "Add terminal resize (SIGWINCH) forwarding in SshHandler during interactive session",
+      "Handle anchor not found locally → auto-pull from server if configured",
+      "Add SFTP/SCP support: anc go <name> --upload / --download"
+    ],
+    "low": [
+      "Add logging (structlog or stdlib logging) instead of print statements",
+      "Consider anc config command for managing ~/.config/anchor/config.toml"
+    ],
+    "done": [
+      "WireGuard dashboard overhaul (session 27): Live Peers table (sidecar online/age/rx/tx), VPN Users+Leases fusionados, DNS dinámico sin default, logs de provisión (secret create + vpn_lease grant), fix ownership de secreto vault al usuario destino",
+      "WireGuard VPN Fase 1 (Control Plane): vpn/ package (ip_pool atomic alloc, sidecar client, router, janitor), integrations/wireguard/ (provider + config model), /vpn/* endpoints, wireguard.html UI, pyotp dep, vpn_leases+vpn_ip_pool MongoDB collections",
+      "anc <name> dispatch system + SSH secure key injection: anchor/handlers/ + LocalHandler + SshHandler (ssh-agent temporal, zero disk) + anc go / anc _type + anc go --pubkey + anchor/shell/anc.sh (jq-fast for local) + docs/security/ssh.md",
+      "Anchor access system: anchors/access.py (users allowlist, allow_group_edit, transfer_to, can_manage_acl) + secret linking (linked_secrets, anchor_link, cascade delete)",
+      "Split server/code/endpoints/ref.py (522 lines) → vault/ package",
+      "Harden server config (JWT secret, LDAP defaults) — pydantic-settings, required vars",
+      "Consolidate anchor endpoints (file-based + MongoDB) → anchors/ package (MongoDB-only)",
+      "Add service token (API key) auth with scopes for Kubernetes automation",
+      "Add local user auth (bcrypt, MongoDB) as alternative to LDAP",
+      "Add AES-256-GCM with HKDF key derivation per secret (replaces shared key)",
+      "Add secret versioning (KV v2 style, up to 10 versions)",
+      "Add /health and /health/ready endpoints for K8s probes",
+      "Singleton MongoDB client (db/client.py) — eliminates per-request MongoClient()",
+      "Unified auth middleware supporting JWT + service tokens + X-API-Key header"
+    ]
+  },
+
+  "refactor_log": [
+    {
+      "date": "2026-03-02",
+      "session": 29,
+      "change": "VPN lease settings sync fix: (1) Backend — PATCH /vpn/admin/users/{username}/settings ahora actualiza expires_at del lease activo del usuario si existe, usando provider.get_effective_lease_seconds() con la nueva política. Si el lease es infinito (0) setea expires_at=null; si tiene duración fija recalcula desde now. (2) Frontend — saveUserSettings() llama Promise.all([loadVpnUsers(), loadLeases(), loadLivePeers()]) en lugar de solo loadVpnUsers(), para que columna Expires y Live Peers reflejen el cambio inmediatamente sin esperar el próximo poll de 30s.",
+      "files_touched": [
+        "server/code/vpn/router.py",
+        "server/templates/wireguard.html"
+      ]
+    },
+    {
+      "date": "2026-03-02",
+      "session": 28,
+      "change": "VPN lease management overhaul: (1) Per-user lease duration — nuevo campo vpn_lease_minutes en user doc (null=global, 0=infinite, N=minutes). provider.py: nuevo método get_effective_lease_seconds(user_doc) que resuelve duración efectiva. integrations/wireguard/models.py: validator de lease_hours acepta ahora 0=infinite. (2) Nuevo endpoint PATCH /vpn/admin/users/{username}/settings: configura vpn_lease_minutes y ventana de blackout (vpn_blackout_start, vpn_blackout_end en HH:MM UTC). Soporta rangos cross-midnight. (3) Janitor reescrito: _cleanup_expired usa query MongoDB con $type:string para ignorar leases infinitos (expires_at=null); _manage_blackouts suspende/reactiva peers según ventana de blackout — remove_peer al entrar, add_peer al salir, flag blackout_active en lease doc. (4) endpoints/admin.py: /admin/users devuelve los tres campos VPN por usuario. (5) wireguard.html: columna Lease/Blackout en tabla VPN Users con fmtUserLease(); modal per-user settings (modo global/infinite/custom + checkbox blackout con time inputs); fmtExpiry muestra '∞' para expires_at=null; badge 'blackout' naranja en columna State; config sidecar label actualizado a 'Default Lease (hours, 0=∞)'.",
+      "files_touched": [
+        "server/code/vpn/router.py",
+        "server/code/vpn/janitor.py",
+        "server/code/integrations/wireguard/models.py",
+        "server/code/integrations/wireguard/provider.py",
+        "server/code/endpoints/admin.py",
+        "server/templates/wireguard.html"
+      ]
+    },
+    {
+      "date": "2026-03-02",
+      "session": 27,
+      "change": "WireGuard dashboard overhaul + bug fixes: (1) Bug fix: _save_vault_secret en vpn/router.py usaba uid (admin) como dueño del secreto en created_by y users[]. Añadido parámetro owner separado — created_by/users[] apuntan al usuario destino, updated_by al actor admin. Llamada de provisión pasa owner=username. (2) Sidecar: PeerInfo model añade online:bool y age_seconds:int|None; router.py calcula ambos en GET /peers (ONLINE_THRESHOLD=180s). (3) SidecarClient: nuevo método get_peers(). (4) vpn/router.py: nuevo endpoint GET /vpn/admin/peers que fusiona datos live del sidecar con estado de lease de MongoDB; DNS dinámico en wg.conf generado — provider.get_dns() en lugar de DNS=1.1.1.1 hardcodeado; añadidos Request + LogEntry a request_vpn y admin_generate_otp — se loguean creación del secreto (resource=secret, action=create) y concesión del lease (resource=vpn_lease, action=grant) con assigned_ip, lease_hours, expires_at, provisioned_by. (5) integrations/wireguard/models.py: campo dns:list[str]=[] sin valor por defecto; provider.py: get_dns(). (6) wireguard.html: redesign completo — cabecera con badges de estado/peers online/pool; tabla Live Peers (auto-refresh 30s, dot pulsante, fmtBytes, fmtAge, fmtExpiry); paneles VPN Users + Active Leases fusionados en uno solo con join client-side via leaseFor(username); acciones por fila (Provision, Revoke OTP, Revoke Lease); config collapsada por defecto con campo DNS lado a lado con Routed Networks.",
+      "files_touched": [
+        "server/code/vpn/router.py",
+        "server/code/vpn/sidecar.py",
+        "server/code/integrations/wireguard/models.py",
+        "server/code/integrations/wireguard/provider.py",
+        "server/wireguard/sidecar/app/models.py",
+        "server/wireguard/sidecar/app/router.py",
+        "server/templates/wireguard.html"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 26,
+      "change": "assign_vpn_uid: fix para DBs existentes con vpn_uid=2 stale. Añadida constante DYNAMIC_UID_MIN=3. assign_vpn_uid() ahora detecta UIDs en rango reservado (<3), los limpia del user doc y cae al contador para asignar uno válido. Doble safety net: si el contador mismo devuelve un uid <3, lo fuerza a DYNAMIC_UID_MIN-1 y reincrementa.",
+      "files_touched": ["server/code/vpn/otp.py"]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 25,
+      "change": "Static admin peer + sidecar protection: (1) server/docker-compose.yml: added PEERS=peer1 to wireguard service (linuxserver generates static peer at 10.13.13.2, config in ./wireguard/config/peer_peer1/); added WG_PROTECTED_IPS=10.13.13.2 env var to wg-sidecar service; updated header comment to document peer1 IP reservation. (2) server/wireguard/sidecar/app/wg.py: added _PROTECTED_IPS frozenset from WG_PROTECTED_IPS env var; add_peer() raises WireGuardError if allowed_ip is protected; remove_peer() resolves peer IP first then raises WireGuardError if protected — both paths completely block any modification to the admin backdoor peer.",
+      "files_touched": [
+        "server/docker-compose.yml",
+        "server/wireguard/sidecar/app/wg.py"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 24,
+      "change": "VPN SPA onboarding — three critical bug fixes + vault secret restored with full peer config: (1) server/code/vpn/spa.py: TIMESTAMP_WINDOW 2→30 seconds — 2s was too tight (silently dropped valid packets due to processing latency); 30s matches TOTP window while nonce TTL still prevents replay. (2) server/code/vpn/knock.py: idempotency check — allows re-knock for stale onboarding leases (cleans up old peer, deletes stale lease, re-registers), blocks only for state=active. (3) anchor/commands/vpn.py: moved getpass/password prompt OUTSIDE console.status() context — Rich's live-rendering hides the prompt. Also: knock sleep 1→2s, handshake timeout 10→20s. (4) server/code/vpn/router.py: admin_generate_otp fully restores server-side provisioning — generates WireGuard keypair (cryptography X25519), allocates IP via uid_to_ip, registers peer on sidecar, creates active lease, saves full wg.conf (with PrivateKey) as vault secret 'vpn/{username}', returns token with wg_privkey+wg_pubkey+assigned_ip+routes. Added optional description param to _save_vault_secret. (5) anchor/commands/vpn.py PRE-PROVISIONED path: split-tunnel up → handshake → auth → /vpn/sync → syncconf hot-reload with full routes (instead of staying on server_vpn_ip/32 split-tunnel forever).",
+      "files_touched": [
+        "server/code/vpn/spa.py",
+        "server/code/vpn/knock.py",
+        "anchor/commands/vpn.py",
+        "server/code/vpn/router.py"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 23,
+      "change": "VPN SPA flow fix — knock listener + pure-SPA provision + peer1 IP reservation: (1) docker-compose.yml: added 62201:62201/udp port to wireguard service (knock listener port); added VPN_KNOCK_PORT=62201 env var to anc-server; updated header comment. (2) server/code/vpn/router.py admin_generate_otp: stripped to pure SPA flow — removed X25519 keypair generation, sidecar add_peer, vault secret save, lease creation. Now only does assign_vpn_uid + generate_otp_seed. knock_port now uses settings.VPN_KNOCK_PORT OR wg_cfg knock_port (mirrors server.py lifespan logic). Token no longer contains wg_privkey/wg_pubkey/assigned_ip so CLI always takes SPA KNOCK path. (3) server/init-mongo.js: pre-seeded vpn_uid_counter with seq=1 so first dynamic user gets uid=3 (10.13.13.3), reserving uid=2 (10.13.13.2) for linuxserver PEERS=peer1 static admin peer. (4) server/templates/wireguard.html: added knock_port field (UDP, 0=disabled) to admin config form Row 3; added knock_port:0 to Alpine.js cfg init object.",
+      "files_touched": [
+        "server/docker-compose.yml",
+        "server/code/vpn/router.py",
+        "server/init-mongo.js",
+        "server/templates/wireguard.html"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 22,
+      "change": "VPN QR onboarding + TOTP from mobile + /vpn/sync (re-implementation after revert): (1) pyproject.toml: removed pyotp from vpn/all dep groups, added qrcode>=7.4. (2) anchor/commands/vpn.py: _check_vpn_deps() now only checks pycryptodome (pyotp removed from CLI). Added _show_qr(provisioning_url) helper — renders ASCII QR with qrcode library (falls back to printing URL if not installed). vpn_init: after saving config, reconstructs otpauth:// URI from seed_b32+uid and calls _show_qr(). _run_wizard token path: same QR display after saving. vpn_up: added optional totp_code: str Argument — if provided uses it directly, else Prompt.ask(). Removed pyotp.TOTP call entirely. Removed import pyotp before wizard. Routes applied from promote response: routes_list = promote_data.get('routes', ['0.0.0.0/0']), joined and passed to _write_wg_conf(). Routes row added to summary panel. (3) server/code/integrations/wireguard/models.py: added routes: list[str] = ['0.0.0.0/0'] field with field_validator using ipaddress.IPv4Network(strict=False). (4) server/code/integrations/wireguard/provider.py: added get_routes() method. (5) server/code/vpn/router.py: GET /vpn/sync endpoint (returns assigned_ip, routes, server_pubkey, server_endpoint, lease_expires for caller's active lease). POST /vpn/promote now includes routes in response. (6) server/templates/wireguard.html: Routed Networks textarea (x-model cfg.routes_raw, one CIDR per line). loadCfg() populates routes_raw from routes array (deletes routes key). saveCfg() converts routes_raw back to routes array, deletes routes_raw before POST.",
+      "files_touched": [
+        "pyproject.toml",
+        "anchor/commands/vpn.py",
+        "server/code/integrations/wireguard/models.py",
+        "server/code/integrations/wireguard/provider.py",
+        "server/code/vpn/router.py",
+        "server/templates/wireguard.html"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 21,
+      "change": "VPN QR onboarding + TOTP from mobile + /vpn/sync: (1) pyproject.toml: removed pyotp from vpn/all dep groups, added qrcode>=7.4. (2) anchor/commands/vpn.py: _check_vpn_deps() now only checks pycryptodome (pyotp removed from CLI). Added _show_qr(provisioning_url) helper — renders ASCII QR with qrcode library (falls back to printing URL if not installed). vpn_init: after saving config, reconstructs otpauth:// URI from seed_b32+uid and calls _show_qr(). _run_wizard token path: same QR display after saving. vpn_up: added optional totp_code: str Argument — if provided uses it directly, else Prompt.ask(). Removed pyotp.TOTP call entirely. Routes applied from promote response: routes_list = promote_data.get('routes', ['0.0.0.0/0']), passed to _write_wg_conf(). Routes row added to summary panel. (3) server/code/integrations/wireguard/models.py: added routes: list[str] = ['0.0.0.0/0'] field with field_validator using ipaddress.IPv4Network(strict=False). (4) server/code/integrations/wireguard/provider.py: added get_routes() method. (5) server/code/vpn/router.py: GET /vpn/sync endpoint (returns assigned_ip, routes, server_pubkey, server_endpoint, lease_expires for caller's active lease). POST /vpn/promote now includes routes in response. (6) server/templates/wireguard.html: Routed Networks textarea (x-model cfg.routes_raw, one CIDR per line). loadCfg() populates routes_raw from routes array. saveCfg() converts routes_raw back to routes array, deletes routes_raw before POST.",
+      "files_touched": [
+        "pyproject.toml",
+        "anchor/commands/vpn.py",
+        "server/code/integrations/wireguard/models.py",
+        "server/code/integrations/wireguard/provider.py",
+        "server/code/vpn/router.py",
+        "server/templates/wireguard.html"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 20,
+      "change": "VPN SPA — bug fixes for pre-provisioned tunnel flow: (1) anchor/commands/vpn.py: added PRE-PROVISIONED PATH fast-track in vpn_up() — when config has wg_privkey (server generated keypair), skip SPA knock + onboarding tunnel + authenticate + promote steps (all of which fail because server-provisioned leases are state='active' not 'onboarding'); write full AllowedIPs=0.0.0.0/0 config directly and wg-quick up. This was the root cause of 100% packet loss: promote 404 → wg-quick down → no tunnel → no route to 10.13.13.1. (2) server/wireguard/sidecar/app/wg.py: add_peer() now also calls `ip route add {ip}/32 dev wg0` after `wg set` so the server kernel has an explicit host route for the peer IP — `wg set` alone does not add kernel IP routes, which would prevent reply packets routing back through wg0 on servers with Address=/32 instead of /24. remove_peer() now looks up the allowed_ip from wg dump before removal and calls `ip route del {ip}/32 dev wg0` to clean up.",
+      "files_touched": [
+        "anchor/commands/vpn.py",
+        "server/wireguard/sidecar/app/wg.py"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 19,
+      "change": "WireGuard VPN SPA Onboarding — Fases 2, 3 y 4: (1) server/code/vpn/otp.py — assign_vpn_uid() (atomic counter, UID=1 reserved for server), generate_otp_seed() (pyotp.random_base32 + AES-256-GCM+HKDF encryption via vault/crypto), get_otp_seed() (decrypt), verify_otp() (pyotp.TOTP valid_window=1). (2) server/code/vpn/spa.py — SPA packet format (154 bytes: 64B uid_raw + 16B nonce + 58B ciphertext + 16B tag), AES key derivation HKDF-SHA256(seed_bytes, salt='spa-v1', info=uid), build_packet() for CLI, parse_packet() for server (silent drop on any failure), uid_to_ip() deterministic IP calc (stateless). (3) server/code/vpn/knock.py — KnockProtocol(asyncio.DatagramProtocol): parse_packet → nonce anti-replay (vpn_nonces unique index) → verify_otp → vpn_uid lookup → uid_to_ip → sidecar.add_peer (AllowedIPs=ip/32) → vpn_leases insert state='onboarding' expires_at=now+5min. start_knock_listener() coroutine started from lifespan. (4) server/code/vpn/router.py: POST /vpn/admin/users/{username}/otp (admin: assign_vpn_uid + generate_otp_seed, returns vpn_uid + seed_b32 + provisioning_url), DELETE /vpn/admin/users/{username}/otp (revoke), POST /vpn/promote (authenticated: promote onboarding→active lease, return full WG config with AllowedIPs=0.0.0.0/0). (5) server/code/integrations/wireguard/models.py: knock_port + server_vpn_uid fields. (6) server/code/config.py: VPN_KNOCK_HOST + VPN_KNOCK_PORT env vars. (7) server/code/server.py: lifespan starts knock listener if WireGuardProvider is enabled and knock_port > 0. (8) server/init-mongo.js: vpn_nonces (unique nonce index + TTL 60s on created_at) + vpn_uid_counter collections. (9) anchor/commands/vpn.py: anc vpn up (wizard + SPA knock + wg-quick up + handshake poll + JWT auth + promote + wg syncconf hot-reload + Rich panel), anc vpn down (wg-quick down + best-effort DELETE /vpn/lease), anc vpn status (server lease + wg show). (10) anchor/cli.py: registered vpn subgroup. (11) pyproject.toml: vpn optional dep group (pyotp>=2.9, pycryptodome>=3.19).",
+      "files_touched": [
+        "server/code/vpn/otp.py",
+        "server/code/vpn/spa.py",
+        "server/code/vpn/knock.py",
+        "server/code/vpn/router.py",
+        "server/code/integrations/wireguard/models.py",
+        "server/code/config.py",
+        "server/code/server.py",
+        "server/init-mongo.js",
+        "anchor/commands/vpn.py",
+        "anchor/cli.py",
+        "pyproject.toml"
+      ]
+    },
+    {
+      "date": "2026-03-01",
+      "session": 18,
+      "change": "Fixed login↔secrets redirect loop + session expiry management: (1) Root cause: login.html init() only checked localStorage token existence (not JWT expiry), so expired tokens still triggered redirect to /ui/secrets. All 401 handlers in page scripts redirected to /ui/login without clearing localStorage, so login page immediately redirected back — infinite loop. (2) base.html: added tokenIsExpired(token) helper (decodes JWT payload, checks exp*1000 < Date.now()), clearSession() helper (removes anc_token/anc_user/anc_groups), updated appShell init() to validate expiry (not just existence), added _startSessionWatcher() with setInterval 60s that auto-logouts on expiry and sets sessionExpiresSoon flag when <5min remain, added 'Session expires soon' warning banner in sidebar. (3) login.html: added tokenIsExpired() helper, updated init() to check expiry before redirecting to /ui/secrets — clears stale session data if expired. (4) secrets.html, anchors.html, users.html, logs.html: all 401 handlers now call clearSession() before location.href='/ui/login' to break the loop.",
+      "files_touched": [
+        "server/templates/base.html",
+        "server/templates/login.html",
+        "server/templates/secrets.html",
+        "server/templates/anchors.html",
+        "server/templates/users.html",
+        "server/templates/logs.html"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "session": 17,
+      "change": "WireGuard VPN integration — Fase 1 (Control Plane): (1) sidecar bug fix: RawPeer.endpoint changed from str='' to str|None=None (wg dump shows '(none)' which was silently assigned to a typed str field). (2) server/code/vpn/ package: models.py (LeaseInfo, VPNRequestBody, VPNConfigResponse), ip_pool.py (atomic allocate_ip/free_ip/init_pool/pool_status via MongoDB findOneAndUpdate), sidecar.py (SidecarClient using urllib stdlib — add_peer/remove_peer/get_status, pubkey URL-encoded in DELETE path), router.py (POST /vpn/request, GET /vpn/status, DELETE /vpn/lease, GET+DELETE /vpn/admin/leases[/{uid}], GET /vpn/admin/pool), janitor.py (async start_janitor loop every 5min via asyncio.create_task + run_in_executor, cleans expired leases from sidecar+pool+DB). (3) server/code/integrations/wireguard/ package: models.py (WireGuardConfig Pydantic with field validators for sidecar_url and lease_hours), provider.py (WireGuardProvider: IntegrationProvider, is_enabled/test_connection/get_client/get_server_endpoint/get_lease_hours/get_subnet). (4) server/code/server.py: import vpn.router + vpn.janitor, mount /vpn router, asyncio.create_task(start_janitor()) in lifespan. (5) integrations/registry.py: registered WireGuardProvider. (6) integrations/router.py: added wireguard to ENCRYPTED_FIELDS (api_key); added WireGuardConfig validation + init_pool() call on every PUT /integrations/wireguard (idempotent, only inserts missing IPs). (7) ui/router.py: GET /ui/wireguard route. (8) templates/base.html: 🔒 VPN nav item (visible to all, no admin guard). (9) templates/wireguard.html: admin view (sidecar config form, test connection, pool badges, active leases table with revoke) + user view (active lease details or no-lease message). (10) requirements.txt: added pyotp. (11) init-mongo.js: vpn_ip_pool + vpn_leases collections with uid unique index and expires_at index.",
+      "files_touched": [
+        "server/wireguard/sidecar/app/wg.py",
+        "server/code/vpn/__init__.py",
+        "server/code/vpn/models.py",
+        "server/code/vpn/ip_pool.py",
+        "server/code/vpn/sidecar.py",
+        "server/code/vpn/router.py",
+        "server/code/vpn/janitor.py",
+        "server/code/integrations/wireguard/__init__.py",
+        "server/code/integrations/wireguard/models.py",
+        "server/code/integrations/wireguard/provider.py",
+        "server/code/server.py",
+        "server/code/integrations/registry.py",
+        "server/code/integrations/router.py",
+        "server/code/ui/router.py",
+        "server/templates/base.html",
+        "server/templates/wireguard.html",
+        "server/requirements.txt",
+        "server/init-mongo.js"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "session": 16,
+      "change": "SSH secure connection + shell performance: (1) anchor/handlers/ssh.py — replaced paramiko with native ssh client + ssh-agent temporal. Flow: vault → PEM string in RAM → ssh-agent -a tmpdir/agent.sock (0700) → ssh-add - (stdin pipe, zero disk) → ssh SSH_AUTH_SOCK=socket → kill agent (SIGTERM). Fixed IdentitiesOnly=yes bug (was blocking agent auth). Added _normalize_pem() for keys stored with literal \\n. Added _key_error_hint() for actionable error messages. Password via sshpass -d fd (not cmdline). (2) anchor/commands/go.py — added --pubkey flag: extracts public key from vault PEM via ssh-keygen -y -f /dev/stdin, prints line ready for authorized_keys. (3) anchor/shell/anc.sh — rewrote local routing: reads JSON directly with jq (5ms) or python3 -c minimal (30ms) instead of two Python CLI startups (600ms+). SSH still routes to anc go (single Python startup). cd for local is now near-instant. (4) install.sh — wrapper copy now diffs src vs dst: shows 'updated' vs 'up to date', shows reload warning only when changed. (5) docs/security/ssh.md — full security doc: problem statement, vault+agent flow diagram, security properties table, residual risks (swap, core dumps, root, MitM), usage guide. (6) pyproject.toml — paramiko removed entirely (was optional [ssh], now not needed).",
+      "files_touched": [
+        "anchor/handlers/ssh.py",
+        "anchor/commands/go.py",
+        "anchor/shell/anc.sh",
+        "install.sh",
+        "docs/security/ssh.md",
+        "pyproject.toml"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "session": 15,
+      "change": "anc <name> dispatch system initial implementation: anchor/utils/secrets.py (resolve_field/resolve_secrets via AnchorClient, in-memory, [[secret:path]] pattern), anchor/handlers/ package (Handler ABC, registry, LocalHandler, SshHandler with paramiko — later replaced), anchor/commands/go.py (anc go + anc _type hidden), anchor/shell/anc.sh (shell wrapper), anchor/cli.py (registered go/_type), pyproject.toml (paramiko optional dep, later removed).",
+      "files_touched": [
+        "anchor/utils/secrets.py",
+        "anchor/handlers/__init__.py",
+        "anchor/handlers/local.py",
+        "anchor/handlers/ssh.py",
+        "anchor/commands/go.py",
+        "anchor/shell/anc.sh",
+        "anchor/cli.py",
+        "pyproject.toml"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "session": 14,
+      "change": "LDAP integration bug fixes after live testing: (1) integrations.html — Alpine.js $root.token() is not a function: $root in v3 is the root DOM element, not the parent component. Fixed by adding token() method directly to integrationsPage(). Also fixed latency_ms display using != null (loose) instead of !== null to handle undefined from catch block. (2) auth/router.py — LDAP auth block gated on settings.ldap_enabled (env vars) instead of LDAPProvider().is_enabled() (MongoDB config): LDAP logins always returned 401 when config came from UI. Fixed both /auth/login and /auth/login/ldap. (3) auth/local.py — authenticate_local() crashed with KeyError on LDAP-synced user documents that have no password_hash field. Fixed with 'password_hash' not in user guard. (4) integrations/ldap/provider.py — get_groups() only searched (member={user_dn}) covering groupOfNames but not posixGroup which uses memberUid={username}. Fixed with compound filter (|(member={user_dn})(memberUid={username})). (5) auth/router.py _sync_ldap_user() — upsert filter was {username, source:ldap} which missed documents without source field, creating duplicates instead of updating. Fixed filter to {username} only.",
+      "files_touched": [
+        "server/templates/integrations.html",
+        "server/code/auth/router.py",
+        "server/code/auth/local.py",
+        "server/code/integrations/ldap/provider.py"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "session": 13,
+      "change": "Modular integrations system: (1) server/code/integrations/ package — base.py (IntegrationProvider ABC), models.py (TestResult/IntegrationSummary), store.py (MongoDB CRUD with AES-256-GCM+HKDF encryption for sensitive fields, same key derivation as vault), registry.py (provider registry, auto-registers LDAPProvider). (2) integrations/ldap/ — models.py (LDAPConfig Pydantic with server URL validation), provider.py (LDAPProvider: config from MongoDB with env-var fallback, authenticate/get_groups/get_user_attributes/test_connection). (3) integrations/router.py: GET/PUT/DELETE /integrations/{type}, POST /integrations/{type}/test — all admin-only. (4) auth/ldap.py refactored to thin shim delegating to LDAPProvider. (5) auth/router.py: adds _sync_ldap_user() — upserts LDAP user profile (groups, email, display_name, last_login) in MongoDB users collection on every LDAP login (sync-on-login strategy, passwords never stored). (6) server.py: mounts /integrations router. (7) ui/router.py + base.html: new admin-only Integrations nav tab. (8) integrations.html: LDAP config form (server, base DN, admin bind, search bases, UID attr, TLS verify, timeout, enabled toggle, sync attrs), Test Connection button with latency/server info result, Save/Remove buttons, AES-encrypted password field.",
+      "files_touched": [
+        "server/code/integrations/__init__.py",
+        "server/code/integrations/base.py",
+        "server/code/integrations/models.py",
+        "server/code/integrations/store.py",
+        "server/code/integrations/registry.py",
+        "server/code/integrations/router.py",
+        "server/code/integrations/ldap/__init__.py",
+        "server/code/integrations/ldap/models.py",
+        "server/code/integrations/ldap/provider.py",
+        "server/code/auth/ldap.py",
+        "server/code/auth/router.py",
+        "server/code/server.py",
+        "server/code/ui/router.py",
+        "server/templates/base.html",
+        "server/templates/integrations.html"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "session": 12,
+      "change": "Anchor access system + secret linking: (1) New anchors/access.py mirroring vault/access.py with is_visible/can_edit/can_manage_acl/can_delete — empty groups = all authenticated. (2) anchors/router.py: full ACL field handling (users, allow_group_edit, transfer_to), [[secret:X]] ref extraction, linked_secrets storage, anchor_link written back to vault secrets, cascade-delete option on DELETE. (3) anchors.html: full perms modal (users allowlist, allow_group_edit checkbox, transfer ownership, linked secrets + sync option), delete cascade checkbox, availableUsers picker from /admin/users. (4) secrets.html: anchor_link badge in expanded row, anchor-link warning in perms modal. (5) vault/router.py: anchor_link added to GET /vault list projection.",
+      "files_touched": [
+        "server/code/anchors/access.py",
+        "server/code/anchors/router.py",
+        "server/code/vault/router.py",
+        "server/templates/anchors.html",
+        "server/templates/secrets.html"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "session": 11,
+      "change": "Fixed anchors UI expand row: Alpine.js v3 x-for requires a single root element inside <template> — having two sibling <tr> caused the second (expanded JSON) row to be silently ignored. Fixed by wrapping both <tr> in a <tbody> per iteration (valid HTML: a table can have multiple tbody). Also removed max-h-72 from the <pre> so the full JSON is visible without vertical scroll. Removed x-cloak from the expand row (x-show already handles initial visibility).",
+      "files_touched": ["server/templates/anchors.html"]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 10,
+      "change": "Added anc set --ssh: parses user@host[:port], optional -i/--identity (key file path), --key-secret/--pass-secret (stores [[secret:path]] vault refs), --password (getpass prompt with plaintext warning), --no-test to skip SSH probe. Connection test uses BatchMode=yes + ConnectTimeout=5. Output panel shows host/user/port/key/password with green for vault refs, yellow for plaintext. JSON schema aligned with server (host, user, port, key, password, paths, groups). Updated set_anchor() to handle --path/--url/--ssh with mutual-exclusion validation.",
+      "files_touched": [
+        "anchor/commands/set.py"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 9,
+      "change": "Added anc set command: --path (local anchor, auto-detects git+docker metadata, ~ relative paths) and --url (URL anchor, top-level base_url aligned with server schema). Common options: --note, --groups, --force, --abs. Git detection ported to anchor/utils/meta.py without shell string concatenation. URL schema uses flat base_url+routes (drops old nested endpoint.* structure that was incompatible with server).",
+      "files_touched": [
+        "anchor/cli.py",
+        "anchor/commands/set.py",
+        "anchor/utils/meta.py"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 8,
+      "change": "New CLI base: anchor/ Python package (Typer + Rich + Pydantic v2 + pyproject.toml entry point). Drops legacy Bash layer and argparse. Config at XDG ~/.config/anchor/ (config.toml + credentials.json 0600). Commands implemented: anc login (getpass, HTTPS warning, saves JWT), anc pull (single/batch/filter), anc push (single/batch/filter), anc ls (Rich table, type colors, filter), anc path (for cd shell integration), anc secret ls/get/push/update/del (full vault CRUD). Filter parser rewritten without eval(). install.sh updated for pip install -e . workflow.",
+      "files_touched": [
+        "pyproject.toml",
+        "requirements.txt",
+        "install.sh",
+        "anchor/__init__.py",
+        "anchor/cli.py",
+        "anchor/config.py",
+        "anchor/client.py",
+        "anchor/store.py",
+        "anchor/models/__init__.py",
+        "anchor/models/anchor.py",
+        "anchor/utils/__init__.py",
+        "anchor/utils/filter.py",
+        "anchor/utils/output.py",
+        "anchor/commands/__init__.py",
+        "anchor/commands/login.py",
+        "anchor/commands/pull.py",
+        "anchor/commands/push.py",
+        "anchor/commands/ls.py",
+        "anchor/commands/path.py",
+        "anchor/commands/secret/__init__.py",
+        "anchor/commands/secret/ls.py",
+        "anchor/commands/secret/get.py",
+        "anchor/commands/secret/push.py",
+        "anchor/commands/secret/update.py",
+        "anchor/commands/secret/del_cmd.py"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 7,
+      "change": "SSH auth section restructured with mode pills ('🔑 From vault', '🔒 New secret', '✏️ Plain') for both private key and password fields, in both create and edit modals. Vault picker is now always visible — no longer hidden inside a help collapsible. Removed showAuthHelp state. Replaced keySave/passwordSave booleans with keyMode/passwordMode ('vault-ref'|'new-secret'|'plain'). create form defaults to new-secret; edit form defaults to plain. Selecting 'From vault' shows inline dropdown; picked secret displayed in green monospace. Logic in createAnchor/updateAnchor updated to check mode instead of boolean flag.",
+      "files_touched": [
+        "server/templates/anchors.html"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 6,
+      "change": "4 improvements to anchors UI: (1) Audit logs added to anchor write ops — POST/PATCH/DELETE now call LogEntry.from_request with action create/update/delete and anchor_type; DELETE gains request: Request param. (2) Clicking anchor name now lazily fetches full JSON (GET /anchors/{name}) and renders it in a dark terminal-style expand row with copy button; cache invalidated on edit/delete/import. (3) Import JSON modal with textarea, JSON validation, and upsert via POST /anchors. (4) SSH create/edit form UX redesign: removed border boxes, plain-English labels (Server address, Login user), vault opt-in described in benefit terms, private key path/paste modes with clear context, paths section renamed to 'Paths on this server' with friendly placeholder.",
+      "files_touched": [
+        "server/code/anchors/router.py",
+        "server/templates/anchors.html"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 5,
+      "change": "Added Anchors UI tab: /ui/anchors page with full CRUD for ssh, local, files, wf anchor types. Table with type badges, expand rows with type-specific details (host/user/port for ssh, path for local, extra paths/routes for ssh). Create/Edit/Permissions/Delete modals. SSH create/edit form: inline 'Save as secret' for password and private key (password creates /vault entry and stores [[secret:path]] reference; private key uses textarea for PEM paste + same vault flow). Collapsible extra paths section per SSH anchor (path + comment). PATCH /anchors/{name} endpoint added. DELETE now checks creator/admin ownership. List projection extended with created_by, host, user, port, routes.",
+      "files_touched": [
+        "server/code/anchors/router.py",
+        "server/code/ui/router.py",
+        "server/templates/base.html",
+        "server/templates/anchors.html"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 4,
+      "change": "Added edit groups feature to users page: PATCH /admin/users/{username} backend endpoint + edit modal in users.html with tag-based group chips, autocomplete datalist, add/remove groups, save via PATCH.",
+      "files_touched": [
+        "server/code/endpoints/admin.py",
+        "server/templates/users.html"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 3,
+      "change": "Privacy hardening: added can_read_plaintext() to vault/access.py (admin scope does NOT grant plaintext access). Updated vault/router.py to use can_read_plaintext() on all plaintext-returning paths. Added GET /admin/users and DELETE /admin/users/{username} endpoints. Built Web UI (Jinja2 + Alpine.js + Tailwind) at /ui with login, secrets CRUD, and admin user management pages.",
+      "files_touched": [
+        "server/code/vault/access.py",
+        "server/code/vault/router.py",
+        "server/code/endpoints/admin.py",
+        "server/code/server.py",
+        "server/code/ui/router.py",
+        "server/templates/base.html",
+        "server/templates/login.html",
+        "server/templates/secrets.html",
+        "server/templates/users.html",
+        "server/requirements.txt",
+        "server/README.md"
+      ]
+    },
+    {
+      "date": "2026-02-27",
+      "session": 2,
+      "change": "Restored ownership transfer feature (transfer_to field in PUT /vault/{path}): only the creator or admin can reassign created_by. Audit log records transferred_to. Updated SecretUpdate model and server README.",
+      "files_touched": [
+        "server/code/vault/models.py",
+        "server/code/vault/router.py",
+        "server/README.md"
+      ]
+    },
+    {
+      "date": "2026-02-26",
+      "session": 1,
+      "change": "Full server refactor: vault package (crypto+versioning+access), auth layer (local users + service tokens + unified middleware), singleton MongoDB client, hardened config via pydantic-settings, /health probes, admin endpoints. Backward-compatible /ref/ and /db/ aliases preserved.",
+      "files_touched": [
+        "server/code/config.py",
+        "server/code/db/client.py",
+        "server/code/auth/token.py",
+        "server/code/auth/local.py",
+        "server/code/auth/service_token.py",
+        "server/code/auth/middleware.py",
+        "server/code/auth/ldap.py",
+        "server/code/auth/router.py",
+        "server/code/vault/crypto.py",
+        "server/code/vault/models.py",
+        "server/code/vault/access.py",
+        "server/code/vault/versions.py",
+        "server/code/vault/router.py",
+        "server/code/anchors/models.py",
+        "server/code/anchors/router.py",
+        "server/code/endpoints/health.py",
+        "server/code/endpoints/admin.py",
+        "server/code/endpoints/dashboard.py",
+        "server/code/core/logger.py",
+        "server/code/core/errors.py",
+        "server/code/server.py",
+        "server/docker-compose.yml",
+        "server/requirements.txt",
+        "server/init-mongo.js"
+      ]
+    }
+  ]
+}
