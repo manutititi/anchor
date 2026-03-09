@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -17,6 +18,7 @@ from vpn.router import router as vpn_router
 from vpn.janitor import start_janitor
 from vpn.knock import start_knock_listener
 
+logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="/app/templates")
 ui_module.set_templates(templates)
@@ -27,23 +29,46 @@ async def lifespan(app: FastAPI):
     get_client()  # Verify MongoDB is reachable at startup
     asyncio.create_task(start_janitor())
 
-    # Start SPA knock listener if WireGuard integration has knock_port configured
+    # Initialize SPA v2 server keypair
+    from vpn.spa import init_server_keypair
+    from config import settings
+    init_server_keypair(settings.SPA_PRIVKEY_B64)
+
+    # Start SPA knock listener.
+    # Uses VPN_KNOCK_PORT env var if set, otherwise falls back to the
+    # WireGuard integration config from MongoDB. Starts whenever a port
+    # is configured — does not require is_enabled() to pass.
+    knock_task = None
     try:
-        from integrations.wireguard.provider import WireGuardProvider
-        from config import settings
-        provider = WireGuardProvider()
-        if provider.is_enabled():
-            wg_cfg = provider._get_config() or {}
-            knock_port = settings.VPN_KNOCK_PORT or int(wg_cfg.get("knock_port", 0))
-            if knock_port > 0:
-                subnet = wg_cfg.get("subnet", "10.13.13.0/24")
-                asyncio.ensure_future(
-                    start_knock_listener(settings.VPN_KNOCK_HOST, knock_port, subnet)
-                )
+        wg_cfg: dict = {}
+        try:
+            from integrations.wireguard.provider import WireGuardProvider
+            wg_cfg = WireGuardProvider()._get_config() or {}
+        except Exception:
+            pass
+
+        knock_port = settings.VPN_KNOCK_PORT or int(wg_cfg.get("knock_port", 0) or 0)
+        if knock_port > 0:
+            subnet = wg_cfg.get("subnet", "10.13.13.0/24")
+            knock_task = asyncio.create_task(
+                start_knock_listener(settings.VPN_KNOCK_HOST, knock_port, subnet)
+            )
+            logger.info("SPA knock listener task created (port=%d)", knock_port)
+        else:
+            logger.info("SPA knock listener disabled: no knock_port configured")
     except Exception:
-        pass  # WireGuard not configured — skip knock listener
+        logger.exception("Failed to start SPA knock listener")
 
     yield
+
+    # Graceful shutdown: cancel knock listener
+    if knock_task and not knock_task.done():
+        knock_task.cancel()
+        try:
+            await knock_task
+        except asyncio.CancelledError:
+            pass
+
     close_client()
 
 
