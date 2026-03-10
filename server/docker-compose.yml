@@ -86,6 +86,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - VAULT_MASTER_KEY=${VAULT_MASTER_KEY}
       - VPN_KNOCK_PORT=62201   # UDP port for the SPA knock listener
+      - SPA_PRIVKEY_B64=${SPA_PRIVKEY_B64}   # X25519 private key for SPA v2 ECIES
     depends_on:
       wireguard:
         condition: service_healthy

@@ -230,8 +230,8 @@ def request_vpn(
         action="grant", success=True,
         extra={
             "assigned_ip": assigned_ip,
-            "lease_hours": lease_hours,
-            "expires_at": expires_at.isoformat(),
+            "lease_seconds": lease_secs,
+            "expires_at": expires_at_iso,
         },
     ).save_default()
     return response

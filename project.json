@@ -303,6 +303,18 @@
 
   "refactor_log": [
     {
+      "date": "2026-03-10",
+      "session": 30,
+      "change": "Knock flow debug and fix: Diagnosed that anc-server container was running OLD SPA v1 code while source had SPA v2 (X25519/ECIES). Full debug revealed: (1) Container code mismatch — rebuilt anc-server from source, deploying spa.py v2, knock.py v2, router.py v2, server.py v2, config.py v2. (2) pycryptodome missing from requirements.txt — added it (vault/crypto.py uses Crypto.Cipher). (3) SPA_PRIVKEY_B64 env var not in docker-compose.yml — added it (references .env value SPA_PRIVKEY). (4) Dockerfile missing --log-level info — added to uvicorn CMD so app logger INFO messages appear in docker logs. (5) VPN routes stored as ['10.13.13.1'] (no CIDR, same as onboarding) — fixed in MongoDB to ['10.13.13.0/24']. (6) router.py:233-234 NameError — lease_hours/expires_at undefined, fixed to lease_secs/expires_at_iso. (7) manu user had no vpn_uid or otp_seed_enc — re-provisioned (vpn_uid=6, new TOTP seed). (8) logging.basicConfig(level=logging.INFO) added to server.py so knock listener and SPA init logs are visible. Knock flow verified end-to-end: SPA packet build/parse symmetric, UDP knock received, onboarding lease created with state=onboarding+assigned_ip=10.13.13.6, peer added to sidecar.",
+      "files_touched": [
+        "server/requirements.txt",
+        "server/docker-compose.yml",
+        "server/Dockerfile",
+        "server/code/server.py",
+        "server/code/vpn/router.py"
+      ]
+    },
+    {
       "date": "2026-03-02",
       "session": 29,
       "change": "VPN lease settings sync fix: (1) Backend — PATCH /vpn/admin/users/{username}/settings ahora actualiza expires_at del lease activo del usuario si existe, usando provider.get_effective_lease_seconds() con la nueva política. Si el lease es infinito (0) setea expires_at=null; si tiene duración fija recalcula desde now. (2) Frontend — saveUserSettings() llama Promise.all([loadVpnUsers(), loadLeases(), loadLivePeers()]) en lugar de solo loadVpnUsers(), para que columna Expires y Live Peers reflejen el cambio inmediatamente sin esperar el próximo poll de 30s.",
