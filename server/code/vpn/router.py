@@ -384,9 +384,11 @@ def admin_provision_otp(username: str, request: Request, admin: str = Depends(_r
     or register a sidecar peer. The user's first 'anc vpn up' does the peer
     registration via SPA knock → onboarding tunnel → promote.
 
-    The provision_token contains only public data (no secrets). The user saves it
-    with 'anc vpn init <token>' and scans the QR from 'provisioning_url' into
-    their authenticator app.
+    The provision_token includes the TOTP seed (seed_b32) so the user can run
+    'anc vpn init <token>' and immediately scan the QR printed in the terminal,
+    with no separate step required.
+
+    ⚠ The token contains the TOTP seed — share it over a secure channel.
 
     Returns:
     - provisioning_url: otpauth:// URI — display to user (QR in admin UI)
@@ -417,6 +419,7 @@ def admin_provision_otp(username: str, request: Request, admin: str = Depends(_r
         token_payload = {
             "uid": username,
             "vpn_uid": vpn_uid,
+            "seed_b32": seed,
             "knock_host": knock_host,
             "knock_port": knock_port,
             "subnet": subnet,

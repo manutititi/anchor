@@ -434,16 +434,13 @@ def vpn_init(
     seed = cfg.get("seed_b32", "")
     uid = cfg.get("uid", "")
     if seed and uid:
-        # Full /provision token — seed is in token, show QR now
         from urllib.parse import quote
         purl = f"otpauth://totp/Anchor:{quote(uid)}?secret={seed}&issuer=Anchor"
         _show_qr(purl)
         console.print("[dim]Scan the QR with your authenticator app, then run [bold]anc vpn up[/bold][/dim]")
     else:
-        # Standard /otp token — admin showed the QR separately via provisioning_url
         console.print(
-            "\n[dim]Scan the QR your admin showed you (from provisioning_url) "
-            "into your authenticator app, then run [bold]anc vpn up[/bold][/dim]"
+            "\n[dim]Ask your admin for a new provision token — this one predates QR embedding.[/dim]"
         )
 
 
