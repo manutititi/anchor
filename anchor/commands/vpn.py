@@ -396,6 +396,17 @@ def _wait_for_handshake(timeout: float = 10.0, interval: float = 0.5) -> bool:
     return False
 
 
+def _show_wg_debug() -> None:
+    """Print current WireGuard interface state for diagnostics."""
+    result = subprocess.run(
+        ["sudo", "wg", "show", WG_IFACE],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        console.print(Panel(result.stdout.strip(), title=f"[bold dim]{WG_IFACE} debug", border_style="dim"))
+    else:
+        console.print(f"[dim]{WG_IFACE} interface not found or not accessible[/dim]")
+
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +461,7 @@ def vpn_up(
         None,
         help="6-digit TOTP from your authenticator app. Prompted interactively if not given.",
     ),
+    debug: bool = typer.Option(False, "--debug", help="Show detailed step-by-step output."),
 ) -> None:
     """
     Bring up the WireGuard VPN tunnel.
@@ -585,10 +597,17 @@ def vpn_up(
         otp_str = Prompt.ask("[cyan]Enter TOTP from your authenticator app")
     pkt = _build_spa_packet(uid, otp_str, pubkey, spa_pubkey_b64)
 
-    with console.status(f"[bold]Knocking {knock_host}:{knock_port}…"):
+    # Send 3 knock packets with 0.5s spacing — UDP has no delivery guarantee.
+    knock_count = 3
+    with console.status(f"[bold]Knocking {knock_host}:{knock_port} ({knock_count}x)…"):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(pkt, (knock_host, knock_port))
+            for i in range(knock_count):
+                sock.sendto(pkt, (knock_host, knock_port))
+                if debug:
+                    console.log(f"[dim]Knock {i+1}/{knock_count} sent ({len(pkt)} bytes)[/dim]")
+                if i < knock_count - 1:
+                    time.sleep(0.5)
             sock.close()
         except Exception as exc:
             console.print(f"[red]UDP send failed:[/red] {exc}")
@@ -596,7 +615,11 @@ def vpn_up(
 
     # ── 4. Bring up restricted tunnel (onboarding mode) ──────────────────────
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
-        time.sleep(2.0)  # allow knock packet to be processed by sidecar
+        time.sleep(3.0)  # allow knock packet to be processed by sidecar
+        if debug:
+            console.log(f"[dim]Client IP: {my_ip_str}  Server: {server_endpoint_cfg}[/dim]")
+            console.log(f"[dim]Server pubkey: {server_pubkey_cfg[:20]}…[/dim]")
+            console.log(f"[dim]Client pubkey: {pubkey}[/dim]")
         try:
             _wg_up(privkey, my_ip_str, server_pubkey_cfg, server_endpoint_cfg, f"{server_vpn_ip}/32")
         except RuntimeError as exc:
@@ -604,19 +627,23 @@ def vpn_up(
             raise typer.Exit(1)
 
     # ── 5. Wait for handshake ────────────────────────────────────────────────
+    if debug:
+        console.log("[dim]Interface up — polling for handshake…[/dim]")
+        _show_wg_debug()
     with console.status("[bold]Waiting for tunnel handshake…"):
         ok = _wait_for_handshake(timeout=20.0)
 
     if not ok:
+        console.print("[red]Handshake timeout (20 s).[/red]")
+        _show_wg_debug()  # always show state on failure for diagnosis
         _wg_down()
         console.print(
-            "[red]Handshake timeout (20 s).[/red]\n"
             "Possible causes:\n"
             "  • Knock was dropped — wrong TOTP code or seed mismatch\n"
             "  • knock_host / knock_port misconfigured (check vpn.toml)\n"
             "  • Sidecar could not add peer (check server logs)\n"
             "  • WireGuard UDP port 51820 unreachable (check firewall)\n"
-            "  • Run: docker exec anc-server tail -f /var/log/... for server logs"
+            "  • Run: docker logs anc-server --tail=20  for server-side logs"
         )
         raise typer.Exit(1)
 
@@ -634,10 +661,34 @@ def vpn_up(
         console.print("[dim]Using cached credentials.[/dim]")
     else:
         console.print(f"[bold]Authenticating via VPN tunnel ({internal_url})…[/bold]")
-        token = _do_login(internal_url, uid)
-        if token:
-            creds["token"] = token
-            save_credentials(creds)
+        import requests.exceptions
+        try:
+            token = _do_login(internal_url, uid)
+            if token:
+                creds["token"] = token
+                save_credentials(creds)
+        except requests.exceptions.ConnectionError as exc:
+            # If we get a connection error AFTER a successful WireGuard handshake,
+            # it almost certainly means our source IP (vpn_uid) was rejected by
+            # the server's AllowedIPs routing table.
+            _wg_down()
+            console.print(
+                "\n[red]Tunnel HTTP authentication failed (Connection Timeout)[/red]\n"
+                "[yellow]Diagnosis:[/yellow] The WireGuard handshake succeeded (keys match), "
+                "but your traffic was dropped. This is typically an [bold]IP Mismatch[/bold].\n\n"
+                "[yellow]Cause:[/yellow]\n"
+                "If the server database was wiped (e.g., fresh deployment), your user account "
+                "was recreated with a new internal IP address, but your local client still "
+                "tries to connect using the old IP address from your saved token.\n\n"
+                "[yellow]Solution:[/yellow]\n"
+                "Your current provisioning token is invalid. Please:\n"
+                "  1. Ask your admin for a new provisioning token.\n"
+                "  2. Run: [bold]anc vpn init <new-token>[/bold]\n"
+                "  3. Run: [bold]anc vpn up[/bold]\n"
+            )
+            if debug:
+                console.print(f"[dim]Exception details: {exc}[/dim]")
+            raise typer.Exit(1)
 
     if not token:
         _wg_down()
