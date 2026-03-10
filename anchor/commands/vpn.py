@@ -54,7 +54,6 @@ app = typer.Typer(
 
 VPN_CONFIG_FILE = CONFIG_DIR / "vpn.toml"
 WG_IFACE = "anc-vpn"
-WG_CONF = Path("/tmp/anc-vpn.conf")
 
 
 # ---------------------------------------------------------------------------
@@ -331,11 +330,53 @@ def _wg_genkey() -> tuple[str, str]:
         raise typer.Exit(1)
 
 
-def _wg_quick(action: str, target: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["sudo", "wg-quick", action, target],
-        capture_output=True, text=True, check=check,
+def _wg_up(privkey: str, my_ip: str, server_pubkey: str, server_endpoint: str, allowed_ips: str) -> None:
+    """Bring up WireGuard interface via wg-quick.
+
+    The config is written to /dev/shm (RAM-backed tmpfs — never reaches disk)
+    with mode 0600, then deleted immediately after wg-quick reads it.
+    Falls back to /tmp if /dev/shm is unavailable.
+    """
+    conf = (
+        f"[Interface]\nAddress = {my_ip}/32\nPrivateKey = {privkey}\n\n"
+        f"[Peer]\nPublicKey = {server_pubkey}\nEndpoint = {server_endpoint}\n"
+        f"AllowedIPs = {allowed_ips}\nPersistentKeepalive = 25\n"
     )
+    # Name must match WG_IFACE so wg-quick derives the right interface name.
+    shm = Path("/dev/shm") if Path("/dev/shm").is_dir() else Path("/tmp")
+    conf_path = shm / f"{WG_IFACE}.conf"
+    try:
+        conf_path.write_text(conf)
+        os.chmod(conf_path, 0o600)
+        r = subprocess.run(
+            ["sudo", "wg-quick", "up", str(conf_path)],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip())
+    finally:
+        conf_path.unlink(missing_ok=True)
+
+
+def _wg_down() -> bool:
+    """Bring down WireGuard interface (no config file needed)."""
+    subprocess.run(["sudo", "ip", "route", "flush", "dev", WG_IFACE], capture_output=True)
+    r = subprocess.run(["sudo", "ip", "link", "del", "dev", WG_IFACE], capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def _wg_update_routes(server_pubkey: str, routes_list: list[str]) -> None:
+    """Hot-reload AllowedIPs and routing table without dropping the WireGuard session."""
+    allowed_ips = ", ".join(routes_list)
+    r = subprocess.run(
+        ["sudo", "wg", "set", WG_IFACE, "peer", server_pubkey, "allowed-ips", allowed_ips],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        console.print(f"[yellow]wg set warning:[/yellow] {r.stderr.strip()}")
+    subprocess.run(["sudo", "ip", "route", "flush", "dev", WG_IFACE], capture_output=True)
+    for route in routes_list:
+        subprocess.run(["sudo", "ip", "route", "add", route.strip(), "dev", WG_IFACE], capture_output=True)
 
 
 def _wait_for_handshake(timeout: float = 10.0, interval: float = 0.5) -> bool:
@@ -355,28 +396,6 @@ def _wait_for_handshake(timeout: float = 10.0, interval: float = 0.5) -> bool:
     return False
 
 
-def _write_wg_conf(
-    privkey: str,
-    my_ip: str,
-    server_pubkey: str,
-    server_endpoint: str,
-    allowed_ips: str,
-    dns: str = "",
-) -> None:
-    dns_line = f"DNS = {dns}\n" if dns else ""
-    WG_CONF.write_text(
-        f"[Interface]\n"
-        f"PrivateKey = {privkey}\n"
-        f"Address = {my_ip}/32\n"
-        f"{dns_line}"
-        f"\n"
-        f"[Peer]\n"
-        f"PublicKey = {server_pubkey}\n"
-        f"Endpoint = {server_endpoint}\n"
-        f"AllowedIPs = {allowed_ips}\n"
-        f"PersistentKeepalive = 25\n"
-    )
-    os.chmod(WG_CONF, 0o600)
 
 
 # ---------------------------------------------------------------------------
@@ -486,23 +505,17 @@ def vpn_up(
 
         with console.status("[bold]Bringing up VPN tunnel…"):
             # Start with split-tunnel (server IP only) so we can reach the API.
-            _write_wg_conf(
-                privkey=privkey,
-                my_ip=assigned_ip,
-                server_pubkey=server_pubkey,
-                server_endpoint=server_endpoint_cfg,
-                allowed_ips=f"{server_vpn_ip}/32",
-            )
-            result = _wg_quick("up", str(WG_CONF), check=False)
-            if result.returncode != 0:
-                console.print(f"[red]wg-quick up failed:[/red]\n{result.stderr.strip()}")
+            try:
+                _wg_up(privkey, assigned_ip, server_pubkey, server_endpoint_cfg, f"{server_vpn_ip}/32")
+            except RuntimeError as exc:
+                console.print(f"[red]wg up failed:[/red] {exc}")
                 raise typer.Exit(1)
 
         with console.status("[bold]Waiting for handshake…"):
             ok = _wait_for_handshake(timeout=15.0)
 
         if not ok:
-            _wg_quick("down", WG_IFACE, check=False)
+            _wg_down()
             console.print(
                 "[red]Handshake timeout (15 s).[/red]\n"
                 "Possible causes:\n"
@@ -545,20 +558,7 @@ def vpn_up(
                 routes_list = cfg.get("routes", ["0.0.0.0/0"])
 
         # Hot-reload with full routes (no tunnel drop)
-        _write_wg_conf(
-            privkey=privkey,
-            my_ip=assigned_ip,
-            server_pubkey=server_pubkey,
-            server_endpoint=server_endpoint_cfg,
-            allowed_ips=", ".join(routes_list),
-        )
-        syncconf = subprocess.run(
-            f"sudo wg syncconf {WG_IFACE} <(sudo wg-quick strip {WG_CONF})",
-            shell=True, executable="/bin/bash",
-            capture_output=True, text=True,
-        )
-        if syncconf.returncode != 0:
-            console.print(f"[yellow]wg syncconf warning:[/yellow] {syncconf.stderr.strip()}")
+        _wg_update_routes(server_pubkey, routes_list)
 
         table = Table.grid(padding=(0, 2))
         table.add_column(style="dim")
@@ -597,21 +597,13 @@ def vpn_up(
             console.print(f"[red]UDP send failed:[/red] {exc}")
             raise typer.Exit(1)
 
-    # ── 4. Write restricted tunnel config + bring up ─────────────────────────
+    # ── 4. Bring up restricted tunnel (onboarding mode) ──────────────────────
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
         time.sleep(2.0)  # allow knock packet to be processed by sidecar
-
-        _write_wg_conf(
-            privkey=privkey,
-            my_ip=my_ip_str,
-            server_pubkey=server_pubkey_cfg,
-            server_endpoint=server_endpoint_cfg,
-            allowed_ips=f"{server_vpn_ip}/32",
-        )
-
-        result = _wg_quick("up", str(WG_CONF), check=False)
-        if result.returncode != 0:
-            console.print(f"[red]wg-quick up failed:[/red]\n{result.stderr.strip()}")
+        try:
+            _wg_up(privkey, my_ip_str, server_pubkey_cfg, server_endpoint_cfg, f"{server_vpn_ip}/32")
+        except RuntimeError as exc:
+            console.print(f"[red]wg up failed:[/red] {exc}")
             raise typer.Exit(1)
 
     # ── 5. Wait for handshake ────────────────────────────────────────────────
@@ -619,7 +611,7 @@ def vpn_up(
         ok = _wait_for_handshake(timeout=20.0)
 
     if not ok:
-        _wg_quick("down", WG_IFACE, check=False)
+        _wg_down()
         console.print(
             "[red]Handshake timeout (20 s).[/red]\n"
             "Possible causes:\n"
@@ -651,7 +643,7 @@ def vpn_up(
             save_credentials(creds)
 
     if not token:
-        _wg_quick("down", WG_IFACE, check=False)
+        _wg_down()
         console.print("[red]Authentication failed. Tunnel closed.[/red]")
         raise typer.Exit(1)
 
@@ -661,12 +653,12 @@ def vpn_up(
             internal_client = AnchorClient(server_url=internal_url, token=token)
             resp = internal_client.post("/vpn/promote")
         except AnchorClientError as exc:
-            _wg_quick("down", WG_IFACE, check=False)
+            _wg_down()
             console.print(f"[red]Promote request failed:[/red] {exc}")
             raise typer.Exit(1)
 
         if resp.status_code != 200:
-            _wg_quick("down", WG_IFACE, check=False)
+            _wg_down()
             detail = resp.json().get("detail", resp.status_code)
             console.print(f"[red]Promote failed:[/red] {detail}")
             raise typer.Exit(1)
@@ -688,22 +680,8 @@ def vpn_up(
         cfg["vpn_uid"] = int(ipaddress.IPv4Address(assigned_ip)) - int(net.network_address)
     _save_vpn_config(cfg)
 
-    _write_wg_conf(
-        privkey=privkey,
-        my_ip=assigned_ip,
-        server_pubkey=server_pubkey,
-        server_endpoint=server_endpoint,
-        allowed_ips=", ".join(routes_list),
-    )
-
-    # Hot-reload without dropping the tunnel
-    syncconf = subprocess.run(
-        f"sudo wg syncconf {WG_IFACE} <(sudo wg-quick strip {WG_CONF})",
-        shell=True, executable="/bin/bash",
-        capture_output=True, text=True,
-    )
-    if syncconf.returncode != 0:
-        console.print(f"[yellow]wg syncconf warning:[/yellow] {syncconf.stderr.strip()}")
+    # Hot-reload AllowedIPs without dropping the tunnel
+    _wg_update_routes(server_pubkey, routes_list)
 
     # ── 9. Show summary panel ────────────────────────────────────────────────
     table = Table.grid(padding=(0, 2))
@@ -722,11 +700,11 @@ def vpn_up(
 @app.command("down")
 def vpn_down() -> None:
     """Bring down the VPN tunnel and revoke the server lease."""
-    result = _wg_quick("down", WG_IFACE, check=False)
-    if result.returncode == 0:
+    ok = _wg_down()
+    if ok:
         console.print(f"[green]Interface {WG_IFACE} down.[/green]")
     else:
-        console.print(f"[yellow]{result.stderr.strip() or 'Interface not active.'}[/yellow]")
+        console.print(f"[yellow]Interface {WG_IFACE} not active.[/yellow]")
 
     # Best-effort: revoke lease on server
     try:
