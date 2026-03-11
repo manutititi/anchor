@@ -615,7 +615,7 @@ def vpn_up(
 
     # ── 4. Bring up restricted tunnel (onboarding mode) ──────────────────────
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
-        time.sleep(3.0)  # allow knock packet to be processed by sidecar
+        time.sleep(5.0)  # allow knock packet to be processed by server + sidecar
         if debug:
             console.log(f"[dim]Client IP: {my_ip_str}  Server: {server_endpoint_cfg}[/dim]")
             console.log(f"[dim]Server pubkey: {server_pubkey_cfg[:20]}…[/dim]")

@@ -631,10 +631,14 @@ def admin_revoke_otp(username: str, admin: str = Depends(_require_admin)):
             pass
         get_collection("vpn_leases").delete_one({"uid": username})
 
-    # Wipe OTP seed + vpn_uid from user doc
+    # Wipe only the OTP seed — vpn_uid is intentionally preserved so the user
+    # keeps the same VPN IP on re-provisioning.  Clearing vpn_uid would cause
+    # assign_vpn_uid() to hand out a new UID (new IP) on the next /otp call,
+    # which breaks existing client configs and leaves leases stuck in onboarding
+    # (WG handshake succeeds but HTTP through the tunnel fails: IP mismatch).
     get_collection("users").update_one(
         {"username": username},
-        {"$unset": {"otp_seed_enc": "", "vpn_uid": "", "vpn_uid_assigned_at": ""}},
+        {"$unset": {"otp_seed_enc": ""}},
     )
     return JSONResponse(content={"detail": f"OTP and VPN access revoked for '{username}'"})
 
