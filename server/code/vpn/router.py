@@ -405,9 +405,13 @@ def admin_provision_otp(username: str, request: Request, admin: str = Depends(_r
             _get_wg_context(provider, admin)
         server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1) or 1)
 
-        from vpn.otp import assign_vpn_uid, generate_otp_seed
+        from vpn.otp import assign_vpn_uid, generate_otp_seed, get_otp_seed
         vpn_uid = assign_vpn_uid(username)
-        seed = generate_otp_seed(username)
+        # Reuse existing seed so the user's authenticator app QR never changes.
+        # Only generate a new seed on first-time provisioning (no existing seed).
+        # To reset the seed intentionally, revoke OTP first (DELETE /admin/users/{u}/otp).
+        existing_seed = get_otp_seed(username)
+        seed = existing_seed if existing_seed else generate_otp_seed(username)
         provisioning_url = pyotp.TOTP(seed).provisioning_uri(name=username, issuer_name="Anchor")
 
         # SPA public key — included in token so client can build SPA v2 packets
@@ -480,9 +484,10 @@ def admin_provision_full(username: str, request: Request, admin: str = Depends(_
         sidecar = provider.get_client()
         server_vpn_uid: int = int(wg_cfg.get("server_vpn_uid", 1) or 1)
 
-        from vpn.otp import assign_vpn_uid, generate_otp_seed
+        from vpn.otp import assign_vpn_uid, generate_otp_seed, get_otp_seed
         vpn_uid = assign_vpn_uid(username)
-        seed = generate_otp_seed(username)
+        existing_seed = get_otp_seed(username)
+        seed = existing_seed if existing_seed else generate_otp_seed(username)
         provisioning_url = pyotp.TOTP(seed).provisioning_uri(name=username, issuer_name="Anchor")
 
         from vpn.spa import get_spa_pubkey_b64, uid_to_ip
