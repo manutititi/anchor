@@ -1,64 +1,122 @@
 """
-SPA V2 (Single Packet Authorization) — ECDH-based packet builder / parser.
+SPA v2 (Single Packet Authorization) — ECIES packet builder / parser.
 
-Packet layout — 126 bytes total:
-  [  32 B  eph_pubkey ]  X25519 ephemeral public key (for ECDH)
-  [  16 B  nonce      ]  AES-GCM nonce
-  [  62 B  ciphertext ]  AES-256-GCM encrypted payload
-  [  16 B  auth tag   ]  GCM authentication tag
+Packet layout — 186 bytes total:
+  [ 32 B  ephemeral_pub ]  client's ephemeral X25519 public key (raw bytes)
+  [ 12 B  nonce         ]  AES-GCM nonce (96-bit, NIST standard)
+  [122 B  ciphertext    ]  AES-256-GCM encrypted payload (same length as plaintext)
+  [ 16 B  tag           ]  GCM authentication tag
+  [  4 B  version       ]  0x00 0x02 0x00 0x00
 
-Encrypted payload (plaintext, 62 bytes):
-  [  4 B  vpn_uid   ]  uint32 big-endian — numeric user identifier
-  [  6 B  otp       ]  TOTP code — ASCII digits, null-padded
-  [  8 B  timestamp ]  Unix epoch — uint64 big-endian
-  [ 44 B  wg_pubkey ]  WireGuard public key — base64 ASCII, null-padded
+Encrypted payload (122 bytes plaintext):
+  [ 64 B  uid      ]  username, null-padded  ← NOW ENCRYPTED, invisible to observer
+  [  6 B  otp      ]  TOTP code — ASCII digits, null-padded
+  [  8 B  timestamp]  Unix epoch — uint64 big-endian
+  [ 44 B  wg_pubkey]  WireGuard public key — base64 ASCII, null-padded
 
-Key derivation:
-  shared_secret = X25519(server_privkey, eph_pubkey)     — or —
-  shared_secret = X25519(eph_privkey, server_pubkey)
-  aes_key = HKDF-SHA256(shared_secret, salt=b"spa-v2", key_len=32)
+Crypto:
+  ECIES: client generates ephemeral X25519 keypair, performs DH with server pubkey.
+  Shared secret → HKDF-SHA256 (salt="spa-v2", info="spa-v2-aes-key") → 32-byte AES key.
+  AES-256-GCM with 12-byte nonce, no AAD.
 
-Zero secrets on the client: the client only knows the server's SPA public
-key (non-confidential).  The TOTP seed never leaves the server.
-Ephemeral keypair per knock → forward secrecy.
+Zero plaintext metadata: an observer sees only an ephemeral public key (random,
+unlinkable per packet), a nonce, ciphertext, a version tag. No username, no identity.
 
-Anti-replay: the 16-byte nonce must be unique in the vpn_nonces TTL collection
-(TTL 60 s).  Timestamp is also checked for ±30 s skew.
+Anti-replay: the 12-byte nonce must be unique in the vpn_nonces TTL collection.
+Timestamp also checked for ±30 s skew.
+
+SPA v1 packets (154 bytes) are silently dropped — wrong size.
 """
 import base64
 import ipaddress
+import logging
+import os
 import struct
 import time
 from dataclasses import dataclass
 from typing import Optional
 
-from Crypto.Cipher import AES
-from Crypto.Hash import SHA256
-from Crypto.Protocol.KDF import HKDF
-from Crypto.Random import get_random_bytes
-
-from cryptography.hazmat.primitives.asymmetric.x25519 import (
-    X25519PrivateKey,
-    X25519PublicKey,
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.serialization import (
+    Encoding, NoEncryption, PrivateFormat, PublicFormat,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Packet constants
 # ---------------------------------------------------------------------------
 
-EPH_PUBKEY_SIZE = 32   # X25519 public key (raw bytes)
-NONCE_SIZE = 16        # AES-GCM nonce
-VPN_UID_SIZE = 4       # uint32 big-endian
-OTP_SIZE = 6           # TOTP code (ASCII digits)
-TS_SIZE = 8            # uint64 big-endian timestamp
-PUBKEY_SIZE = 44       # WireGuard base64 public key
-TAG_SIZE = 16          # GCM authentication tag
+EPHEMERAL_PUB_SIZE = 32   # X25519 public key (raw)
+NONCE_SIZE = 12            # AES-GCM nonce (96-bit)
+UID_SIZE = 64              # username, null-padded
+OTP_SIZE = 6               # TOTP code (ASCII digits)
+TS_SIZE = 8                # uint64 big-endian timestamp
+PUBKEY_SIZE = 44           # WireGuard base64 public key
+TAG_SIZE = 16              # GCM authentication tag
+VERSION_SIZE = 4           # packet version marker
+VERSION = b"\x00\x02\x00\x00"
 
-PLAINTEXT_SIZE = VPN_UID_SIZE + OTP_SIZE + TS_SIZE + PUBKEY_SIZE   # 62
-PACKET_SIZE = EPH_PUBKEY_SIZE + NONCE_SIZE + PLAINTEXT_SIZE + TAG_SIZE  # 126
+PAYLOAD_SIZE = UID_SIZE + OTP_SIZE + TS_SIZE + PUBKEY_SIZE   # 122
+PACKET_SIZE = EPHEMERAL_PUB_SIZE + NONCE_SIZE + PAYLOAD_SIZE + TAG_SIZE + VERSION_SIZE  # 186
 
-# Maximum allowed clock skew in seconds.
+# Maximum allowed clock skew (matches TOTP valid_window=1).
 TIMESTAMP_WINDOW = 30
+
+# Byte offsets within the packet
+_OFF_NONCE = EPHEMERAL_PUB_SIZE                                           # 32
+_OFF_CT    = EPHEMERAL_PUB_SIZE + NONCE_SIZE                              # 44
+_OFF_TAG   = EPHEMERAL_PUB_SIZE + NONCE_SIZE + PAYLOAD_SIZE               # 166
+_OFF_VER   = EPHEMERAL_PUB_SIZE + NONCE_SIZE + PAYLOAD_SIZE + TAG_SIZE    # 182
+
+
+# ---------------------------------------------------------------------------
+# Module-level server keypair (initialized once at startup)
+# ---------------------------------------------------------------------------
+
+_spa_privkey: Optional[X25519PrivateKey] = None
+_spa_pubkey_b64: str = ""
+
+
+def init_server_keypair(privkey_b64: str = "") -> str:
+    """
+    Initialize the SPA server X25519 keypair.
+
+    If privkey_b64 is provided (SPA_PRIVKEY_B64 env var), load that key.
+    Otherwise auto-generate, log the private key for copy-paste into .env,
+    and use it for this process lifetime only.
+
+    Returns the public key as base64 (safe to share, included in provision tokens).
+    """
+    global _spa_privkey, _spa_pubkey_b64
+
+    if privkey_b64:
+        raw = base64.b64decode(privkey_b64)
+        _spa_privkey = X25519PrivateKey.from_private_bytes(raw)
+        logger.info("SPA keypair loaded from SPA_PRIVKEY_B64.")
+    else:
+        _spa_privkey = X25519PrivateKey.generate()
+        raw = _spa_privkey.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+        generated_b64 = base64.b64encode(raw).decode()
+        logger.warning(
+            "SPA_PRIVKEY_B64 not set — auto-generated for this session only.\n"
+            "Add to your .env to make knock tokens persistent across restarts:\n"
+            "  SPA_PRIVKEY_B64=%s",
+            generated_b64,
+        )
+
+    pub_raw = _spa_privkey.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    _spa_pubkey_b64 = base64.b64encode(pub_raw).decode()
+    logger.info("SPA public key: %s", _spa_pubkey_b64)
+    return _spa_pubkey_b64
+
+
+def get_spa_pubkey_b64() -> str:
+    """Return the server SPA public key (base64). Empty if not initialized."""
+    return _spa_pubkey_b64
 
 
 # ---------------------------------------------------------------------------
@@ -67,39 +125,25 @@ TIMESTAMP_WINDOW = 30
 
 @dataclass
 class SPAData:
-    vpn_uid: int    # numeric VPN user identifier
+    uid: str        # username (decrypted from payload)
     otp: str        # 6-digit TOTP code
     timestamp: int  # Unix epoch from packet
     wg_pubkey: str  # WireGuard public key (base64)
 
 
 # ---------------------------------------------------------------------------
-# Key helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
-def load_privkey(b64: str) -> X25519PrivateKey:
-    """Load an X25519 private key from base64."""
-    return X25519PrivateKey.from_private_bytes(base64.b64decode(b64))
-
-
-def load_pubkey(b64: str) -> X25519PublicKey:
-    """Load an X25519 public key from base64."""
-    return X25519PublicKey.from_public_bytes(base64.b64decode(b64))
-
-
-def derive_pubkey(privkey: X25519PrivateKey) -> str:
-    """Derive the base64-encoded public key from a private key."""
-    return base64.b64encode(privkey.public_key().public_bytes_raw()).decode()
-
-
-def _ecdh_derive_key(shared_secret: bytes) -> bytes:
-    """Derive a 32-byte AES key from an ECDH shared secret via HKDF."""
-    return HKDF(
-        master=shared_secret,
-        key_len=32,
+def _derive_aes_key(shared_secret: bytes) -> bytes:
+    """HKDF-SHA256 over the X25519 shared secret → 32-byte AES key."""
+    hkdf = HKDF(
+        algorithm=SHA256(),
+        length=32,
         salt=b"spa-v2",
-        hashmod=SHA256,
+        info=b"spa-v2-aes-key",
     )
+    return hkdf.derive(shared_secret)
 
 
 # ---------------------------------------------------------------------------
@@ -110,115 +154,112 @@ def uid_to_ip(uid: int, subnet: str) -> str:
     """
     Deterministically compute the VPN IP for a given integer UID.
     UID=1 → subnet.1 (WireGuard server), UID=2 → subnet.2, etc.
+    No database required — pure arithmetic.
     """
     net = ipaddress.IPv4Network(subnet, strict=False)
     return str(net.network_address + uid)
 
 
 def build_packet(
-    vpn_uid: int,
+    uid_str: str,
     otp_str: str,
     wg_pubkey: str,
-    server_pubkey: X25519PublicKey,
+    server_spa_pubkey_b64: str,
 ) -> bytes:
     """
-    Build a 126-byte SPA V2 UDP packet.
-
-    Uses an ephemeral X25519 keypair for ECDH key agreement with the
-    server's SPA public key.  The vpn_uid, TOTP code, timestamp and
-    WireGuard public key are all encrypted — zero plaintext metadata.
+    Build a 186-byte SPA v2 UDP packet ready to send to the knock listener.
 
     Args:
-        vpn_uid:       Numeric VPN user ID (uint32).
-        otp_str:       Current TOTP code (6 ASCII digits).
-        wg_pubkey:     WireGuard public key (44-char base64 string).
-        server_pubkey: Server's SPA X25519 public key object.
+        uid_str:              Username.
+        otp_str:              Current TOTP code (6 ASCII digits).
+        wg_pubkey:            WireGuard public key (44-char base64 string).
+        server_spa_pubkey_b64: Server's SPA X25519 public key (base64).
+
+    The uid is encrypted — an observer cannot determine who sent the packet.
     """
-    # Ephemeral ECDH keypair (forward secrecy)
+    # Load server public key
+    server_pub_raw = base64.b64decode(server_spa_pubkey_b64)
+    server_pub = X25519PublicKey.from_public_bytes(server_pub_raw)
+
+    # Generate ephemeral X25519 keypair
     eph_priv = X25519PrivateKey.generate()
-    eph_pub_bytes = eph_priv.public_key().public_bytes_raw()  # 32 bytes
+    eph_pub_raw = eph_priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 
-    # Shared secret → AES key
-    shared = eph_priv.exchange(server_pubkey)
-    key = _ecdh_derive_key(shared)
+    # DH → shared secret → AES key
+    shared = eph_priv.exchange(server_pub)
+    aes_key = _derive_aes_key(shared)
 
-    # Build plaintext
+    # Build plaintext payload (122 bytes)
     ts = int(time.time())
-    plaintext = (
-        struct.pack(">I", vpn_uid)
+    payload = (
+        uid_str.encode().ljust(UID_SIZE, b"\x00")[:UID_SIZE]
         + otp_str.encode().ljust(OTP_SIZE, b"\x00")[:OTP_SIZE]
         + struct.pack(">Q", ts)
         + wg_pubkey.encode().ljust(PUBKEY_SIZE, b"\x00")[:PUBKEY_SIZE]
     )
 
-    # AES-256-GCM encrypt
-    nonce = get_random_bytes(NONCE_SIZE)
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+    # AES-256-GCM encrypt (returns ciphertext + 16-byte tag)
+    nonce = os.urandom(NONCE_SIZE)
+    ct_with_tag = AESGCM(aes_key).encrypt(nonce, payload, None)
+    ciphertext = ct_with_tag[:PAYLOAD_SIZE]
+    tag = ct_with_tag[PAYLOAD_SIZE:]
 
-    return eph_pub_bytes + nonce + ciphertext + tag
+    return eph_pub_raw + nonce + ciphertext + tag + VERSION
 
 
 def parse_packet(
     data: bytes,
-    server_privkey: X25519PrivateKey,
+    server_privkey: Optional[X25519PrivateKey] = None,
 ) -> Optional[SPAData]:
     """
-    Parse and cryptographically validate an SPA V2 packet.
+    Parse and cryptographically validate an SPA v2 packet.
 
-    Returns SPAData on success, None on any failure (silent drop).
-    Validates: exact packet size, ECDH + AES-GCM auth tag, timestamp skew.
+    Returns SPAData on success, None on any failure (silent drop semantics).
+    Validates: exact packet size, version bytes, ECIES decryption, timestamp skew.
     Anti-replay (nonce uniqueness) must be enforced by the caller (knock.py).
 
     Args:
-        data:           Raw UDP payload (126 bytes expected).
-        server_privkey: Server's SPA X25519 private key for ECDH.
+        data:           Raw UDP payload (must be exactly PACKET_SIZE bytes).
+        server_privkey: X25519 private key to use. Defaults to module-level
+                        _spa_privkey (set by init_server_keypair at startup).
     """
     if len(data) != PACKET_SIZE:
         return None
 
-    # Split packet
-    eph_pub_bytes = data[:EPH_PUBKEY_SIZE]
-    nonce = data[EPH_PUBKEY_SIZE : EPH_PUBKEY_SIZE + NONCE_SIZE]
-    ct_start = EPH_PUBKEY_SIZE + NONCE_SIZE
-    ciphertext = data[ct_start : ct_start + PLAINTEXT_SIZE]
-    tag = data[ct_start + PLAINTEXT_SIZE :]
-
-    # ECDH → shared secret → AES key
-    try:
-        eph_pubkey = X25519PublicKey.from_public_bytes(eph_pub_bytes)
-        shared = server_privkey.exchange(eph_pubkey)
-    except Exception:
+    # Check version marker
+    if data[_OFF_VER:] != VERSION:
         return None
 
-    key = _ecdh_derive_key(shared)
-
-    # Decrypt
-    try:
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-        plaintext = cipher.decrypt_and_verify(ciphertext, tag)
-    except Exception:
+    privkey = server_privkey or _spa_privkey
+    if privkey is None:
+        logger.error("SPA parse_packet: server keypair not initialized")
         return None
 
-    # Unpack fields
-    vpn_uid = struct.unpack(">I", plaintext[:VPN_UID_SIZE])[0]
-    otp_str = (
-        plaintext[VPN_UID_SIZE : VPN_UID_SIZE + OTP_SIZE]
-        .rstrip(b"\x00")
-        .decode(errors="replace")
-    )
-    ts = struct.unpack(
-        ">Q",
-        plaintext[VPN_UID_SIZE + OTP_SIZE : VPN_UID_SIZE + OTP_SIZE + TS_SIZE],
-    )[0]
+    eph_pub_raw = data[:EPHEMERAL_PUB_SIZE]
+    nonce = data[_OFF_NONCE:_OFF_CT]
+    ciphertext = data[_OFF_CT:_OFF_TAG]
+    tag = data[_OFF_TAG:_OFF_VER]
+
+    # ECIES: server DH with ephemeral client pubkey → shared secret → AES key
+    try:
+        eph_pub = X25519PublicKey.from_public_bytes(eph_pub_raw)
+        shared = privkey.exchange(eph_pub)
+        aes_key = _derive_aes_key(shared)
+        payload = AESGCM(aes_key).decrypt(nonce, ciphertext + tag, None)
+    except Exception:
+        return None  # authentication failure or malformed key — silent drop
+
+    # Extract fields from plaintext payload
+    uid_str = payload[:UID_SIZE].rstrip(b"\x00").decode(errors="replace")
+    otp_str = payload[UID_SIZE:UID_SIZE + OTP_SIZE].rstrip(b"\x00").decode(errors="replace")
+    ts = struct.unpack(">Q", payload[UID_SIZE + OTP_SIZE:UID_SIZE + OTP_SIZE + TS_SIZE])[0]
     wg_pubkey = (
-        plaintext[VPN_UID_SIZE + OTP_SIZE + TS_SIZE :]
+        payload[UID_SIZE + OTP_SIZE + TS_SIZE:]
         .rstrip(b"\x00")
         .decode(errors="replace")
     )
 
-    # Timestamp check
     if abs(int(time.time()) - ts) > TIMESTAMP_WINDOW:
         return None
 
-    return SPAData(vpn_uid=vpn_uid, otp=otp_str, timestamp=ts, wg_pubkey=wg_pubkey)
+    return SPAData(uid=uid_str, otp=otp_str, timestamp=ts, wg_pubkey=wg_pubkey)

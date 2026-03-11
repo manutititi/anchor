@@ -9,4 +9,4 @@ COPY . .
 
 ENV PYTHONPATH=/app/code
 
-CMD ["uvicorn", "code.server:app", "--host", "0.0.0.0", "--port", "17017"]
+CMD ["uvicorn", "code.server:app", "--host", "0.0.0.0", "--port", "17017", "--log-level", "info"]

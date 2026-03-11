@@ -3,6 +3,7 @@ uvicorn
 jinja2
 python-multipart
 python-jose[cryptography]
+cryptography
 ldap3
 pydantic
 pydantic-settings
@@ -11,5 +12,5 @@ passlib[bcrypt]
 bcrypt==4.0.1
 typing
 pytz
-pycryptodome
 pyotp
+pycryptodome
