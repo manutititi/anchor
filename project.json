@@ -369,6 +369,12 @@
   "refactor_log": [
     {
       "date": "2026-03-26",
+      "session": 34,
+      "change": "Updated uninstall.sh: replaced outdated sed patterns with patterns matching current install.sh output (PATH with .anchors/venv/bin, ANCHOR_DIR, anc.sh wrapper, anc.bash completion, # anchor-cli comments). Added --keep-data flag to preserve ~/.anchors/data on uninstall. Kept legacy pattern cleanup for compatibility with old installs.",
+      "files_touched": ["uninstall.sh"]
+    },
+    {
+      "date": "2026-03-26",
       "session": 33,
       "change": "CLI refactor audit + marking + cr/rc/cp migration: (1) Marked 46 legacy files with # TO DELETE — all core/commands/ files with replacements in anchor/ (set/, ls, push, pull, secret/, server/, ldap/, doc, url, wf, cr, rc) + 8 shell functions (set.sh, set_ssh.sh, set_url.sh, server.sh, help.sh, man.sh, show.sh, edit.sh). (2) Created anchor/handlers/url.py — UrlHandler opens base_url in default browser via webbrowser.open(), registered in handlers/__init__.py. (3) Added -r/--remote flag to anchor/commands/ls.py — queries GET /anchors from server with filter support, shared table renderer for local and remote. (4) Migrated cr and rc to anchor/commands/ — cr.py: Typer CLI with --mode/--blank/--force, captures files/dirs to files anchor with encoding detection, permissions, privilege path detection. rc.py: Typer CLI with --yes, restores files with replace/append/prepend/regex modes, MD5 skip-unchanged, sudo escalation, pre/postload scripts, ownership. Both registered in cli.py. (5) Created anchor/commands/cp.py — rsync-based file transfer between anchors/paths. Supports local↔local, local↔ssh, ssh↔local, ssh↔ssh (via relay). Uses same ssh-agent temporal pattern as SshHandler for PEM keys in memory, sshpass pipe for passwords. --exclude flag for filtering. --dry-run. Reuses _normalize_pem/_parse_agent_pid from handlers/ssh.py. (6) Decisions: wf.py marked TO DELETE, ldap/ marked TO DELETE, sible → inventory-only.",
       "files_touched": [

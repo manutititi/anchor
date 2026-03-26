@@ -61,6 +61,10 @@ SSH keys and passwords stored in anchors reference vault paths (`[[secret:vault/
 
 ## CLI Reference
 
+
+## add here the basic for anc <name> and it goes to ssh local or url 
+
+
 ### Authentication
 
 ```bash
@@ -215,6 +219,10 @@ Operators: `=` (exact), `!=` (not equal), `~` (contains), `!~` (not contains). L
 
 - **Security audit and test coverage**: the codebase currently has no automated tests. Planned work includes unit and integration tests for vault operations, secret resolution, SPA packet handling, and the rsync transfer layer.
 
-- **CSPRNG replacement**: several areas use Python's `random` module, which is not cryptographically secure. These will be replaced with `secrets` (stdlib) or `os.urandom` throughout — particularly in token generation, nonce handling, and any place randomness feeds into a security decision.
+- **CSPRNG replacement**: several areas use Python's `random` module, which is not cryptographically secure. These will be replaced with `secrets` particularly in token generation, nonce handling, and any place randomness feeds into a security decision.
 
 - **Distroless Dockerfile** 
+
+- **Secure /dev/shm when private peer file key enters**
+
+- **Considering a web plugin for secrets**
