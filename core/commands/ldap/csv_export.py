@@ -1,3 +1,4 @@
+# TO DELETE
 import csv
 import datetime
 from core.utils.colors import green

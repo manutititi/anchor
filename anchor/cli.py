@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import typer
 
-from anchor.commands import login, ls, path, pull, push, set
+from anchor.commands import cp, cr, login, ls, path, pull, push, rc, set
 from anchor.commands.go import anchor_type, go
 from anchor.commands.secret import app as secret_app
 from anchor.commands.vpn import app as vpn_app
@@ -33,6 +33,9 @@ app.command("push")(push.push)
 app.command("ls")(ls.ls)
 app.command("path")(path.path)
 app.command("go")(go)
+app.command("cr")(cr.cr)
+app.command("rc")(rc.rc)
+app.command("cp")(cp.cp)
 
 # Internal — used by the shell wrapper (anchor/shell/anc.sh) to route
 # bare `anc <name>` calls without side effects.

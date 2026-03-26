@@ -1,163 +1,220 @@
-# anc — Anchor Management CLI
+# Anchor
 
-`anc` is a modular CLI and optional server for managing paths, scripts, files, secrets, environments, and infrastructure workflows through **anchors** — executable, metadata-rich JSON objects.
+A developer tool designed to reduce context-switching and protect secrets for small and medium engineering teams. It combines a local CLI for navigating infrastructure with an optional self-hosted server that acts as a secure secret vault — secrets are resolved at runtime, kept in memory only, and never written to disk.
 
-Built for DevOps teams and developers, `anc` evolves from a shell utility to a portable automation framework: syncable, declarative, and extensible.
+The CLI can be used standalone. The server adds vault-backed secret resolution, team sync, and a WireGuard VPN gateway.
 
 ---
 
-<details>
-<summary><strong>🚀 Installation</strong></summary>
+## Architecture
 
-### CLI Setup
+```
+Developer machine                    Self-hosted server (optional)
+-----------------                    --------------------------------
+anc (CLI)                            Anchor Vault Server (FastAPI)
+  - local anchors (~/.anchors/data)    - MongoDB (encrypted secrets)
+  - shell wrapper (anc.sh)             - JWT + service token auth
+  - WireGuard client (anc vpn)         - WireGuard control plane
+  - rsync transfers (anc cp)           - REST API on port 17017
+  - vault resolution at runtime  <-->  - Web UI (/ui)
+```
+
+The server has its own documentation in [server/README.md](server/README.md).
+
+---
+
+## Goal
+
+Anchor aims to be the **context layer for infrastructure access** — a bastion that knows where things are, who can reach them, and how credentials travel. Secrets are injected at the moment of use (SSH session, file restore, rsync transfer) and discarded immediately after. Nothing sensitive touches disk.
+
+The target is teams that manage multiple environments, servers, and credentials without the overhead of enterprise secrets platforms.
+
+---
+
+## Installation
 
 ```bash
+git clone <repo>
+cd anchor
 ./install.sh
+source ~/.bashrc
 ```
 
-### Launch the Server (optional)
+`install.sh` checks required system dependencies (`ssh`, `rsync`, `jq`, `sshpass`, `wg`, `wg-quick`), creates a Python venv at `~/.anchors/venv`, installs the package non-editable (code is independent of the source directory), copies the shell wrapper, and adds the necessary lines to `.bashrc`/`.zshrc`.
 
-```bash
-cd server
-docker compose up --build -d
-```
+Re-running `install.sh` upgrades the installation.
 
-- Dashboard: http://localhost:17017/dashboard  
-- API: http://localhost:17017
-</details>
+**Requirements:** Python 3.10+, the system dependencies above, and a Linux host for VPN features.
 
 ---
 
-## 🔑 Key Concepts
+## How Secrets Are Protected
 
-- **Anchors**: JSON-based units representing paths, environments, secrets, tasks, or workflows.
-- **Types**: `local`, `ssh`, `url`, `env`, `files`, `ansible`, `secret`.
-- **Filtering**: Query anchors by metadata using expressions like `env=prod AND project=web`.
-- **Modular**: Each command is composable, scriptable, and server-aware.
+SSH keys and passwords stored in anchors reference vault paths (`[[secret:vault/path]]`) rather than literal values. When a command needs them:
+
+1. The CLI fetches the plaintext from the vault over HTTPS (JWT-authenticated).
+2. For SSH keys: the PEM is loaded into an isolated, ephemeral `ssh-agent` process via stdin pipe. The key never touches disk. The agent is killed after the operation.
+3. For passwords: passed to `sshpass` through a file descriptor pipe. The value never appears in process arguments or command history.
+4. For rsync transfers: the same agent injection is used to authenticate the underlying SSH connection.
 
 ---
 
-## 📁 Anchor Management
+## CLI Reference
+
+### Authentication
 
 ```bash
-anc set                # Set anchor for current directory
-anc set --ssh name user@host:/path -i /path/to/key
-anc set --url name https://example.com
-anc set --env name .env
-anc set --ansible name
-anc show name
-anc ls
-anc ls -f project=web
-anc note name "Optional comment"
-anc meta name env=dev project=demo
-anc rename old new
-anc del name
-anc prune              # Remove anchors with invalid paths
+anc login                            # Authenticate against the server, save token
+anc login --url https://host:17017
 ```
 
 ---
 
-## 🔄 File Operations
+### Anchors
+
+Anchors are JSON objects stored in `~/.anchors/data/`. Types: `local`, `ssh`, `url`, `files`.
 
 ```bash
-anc cp file.txt anchor/
-```
+# Create anchors
+anc set                              # Local anchor for current directory
+anc set --path myproject ~/projects/myproject
+anc set --ssh prodserver user@host:22 -i ~/.ssh/id_rsa
+anc set --ssh prodserver user@host:22 --key-secret vault/ssh/prod
+anc set --url api https://api.example.com
 
----
+# Navigate
+anc myproject                        # cd into local anchor (instant, no Python)
+anc prodserver                       # Open SSH session to server
 
-## 🧨 Command Execution
+# List
+anc ls                               # All local anchors
+anc ls -t ssh                        # Filter by type
+anc ls -f "meta.env=prod"            # Filter by metadata
+anc ls -r                            # List anchors on the server
+anc ls -r -f "type=ssh"
 
-```bash
-anc run dev "npm install"
-anc run -f env=prod "systemctl restart nginx"
-```
-
----
-
-## 🌐 Server Sync
-
-```bash
-anc server auth                      # Authenticate via LDAP
-anc server name https://host:17017  # Set server URL
-anc server ls                       # List remote anchors
-anc server ls -f env=prod
-anc server show name
-
-anc push name                       # Upload anchor to server
-anc pull name                       # Download anchor from server
+# Sync with server
+anc push myproject                   # Upload anchor to server
+anc pull myproject                   # Download anchor from server
+anc pull -f "type=ssh"              # Pull all matching anchors
 anc pull --all
-anc pull -f project=infra
+
+# Inspect
+anc path myproject                   # Print path (for scripting: cd $(anc path x))
+anc go prodserver --pubkey           # Print SSH public key from vault
 ```
 
-Filters support advanced logic:
+---
+
+### Secrets
 
 ```bash
-anc server ls -f "env=prod AND project~web"
+anc secret push vault/myapp/db_pass              # Create (prompts for value)
+anc secret push vault/myapp/db_pass --file .env  # From file
+anc secret get vault/myapp/db_pass               # Print plaintext
+anc secret get vault/myapp/db_pass --out /tmp/f  # Write to file (mode 0600)
+anc secret ls                                    # List visible secrets
+anc secret ls myapp/                             # Filter by prefix
+anc secret update vault/myapp/db_pass            # Update (creates new version)
+anc secret del vault/myapp/db_pass               # Delete
 ```
+
+Access control is per-secret: `--users alice,bob`, `--groups devops`, `--gedit` (allow group edit). Secrets support up to 10 versions.
 
 ---
 
-## 🔐 Secret Management
+### File Capture and Restore
 
 ```bash
-anc secret push name [.env]         # Encrypt and push secret
-anc secret get name                 # Decrypt and show
-anc secret update name              # Interactive update
-anc secret del name                 # Delete secret
+# Capture
+anc cr myconfig                      # Capture current directory
+anc cr myconfig /etc/nginx.conf      # Capture a specific file
+anc cr myconfig src/ --mode replace  # Capture directory with write mode
+anc cr myconfig /etc/hosts --blank   # Capture metadata only (no content)
+
+# Restore
+anc rc myconfig                      # Restore to original paths
+anc rc myconfig /opt/deploy          # Restore relative files under /opt/deploy
+anc rc myconfig --yes                # Skip confirmation
+
+# Write modes: replace (default), append, prepend, regex
+# Absolute paths (~/... or /...) restore to original location.
+# Relative paths restore under the target directory.
+# Privilege escalation is automatic for system paths (/etc, /usr, /opt, /root).
 ```
-
-Supports interactive and non-interactive modes with `--desc`, `--groups`, `--users`, `--secret`, and `--json`.
-
-Secrets are stored encrypted (AES-GCM), and access is controlled by group/user policies via LDAP.
 
 ---
 
-## 🔁 Environment Snapshots
+### File Transfer
 
 ```bash
-anc cr name                         # Capture current folder as files anchor
-anc cr name /path/to/1 path/to/2    # Capture current folder as files anchor
-anc rc name                         # Restore to current directory
+anc cp src/ dst/                           # Local to local
+anc cp ./file.txt prodserver/deploy/       # Local to SSH anchor
+anc cp prodserver/logs/ ./logs             # SSH anchor to local
+anc cp server-a/data server-b/data         # SSH to SSH (via local relay)
+
+anc cp src/ dst/ --exclude .git            # Exclude pattern
+anc cp src/ dst/ --exclude .git --exclude node_modules
+anc cp src/ dst/ --dry-run                 # Preview without copying
 ```
+
+SSH credentials are injected the same way as `anc go` — in-memory agent or sshpass pipe. The source anchor's key or password is fetched from the vault at transfer time.
 
 ---
 
-## ⚙️ Workflows
+### VPN
 
 ```bash
-anc wf myflow
+anc vpn init <token>                 # Save provisioning token
+anc vpn up                           # Bring up WireGuard tunnel
+anc vpn up --debug                   # Verbose output
+anc vpn down                         # Tear down tunnel
+anc vpn status                       # Show lease and interface info
 ```
 
-Run declarative workflows combining:
-
-- `anc`: internal commands
-- `shell`: system commands
-- `files`: restore anchors
-- `api`: HTTP requests
-- `sleep`, `watch`, `set`, etc.
-
-
-Workflows support loops, variables, secrets, and conditionals.
+The VPN uses SPA (Single Packet Authorization) with X25519/AES-256-GCM for zero-exposure port knocking. The server only opens the WireGuard peer after validating a TOTP-authenticated encrypted UDP packet. The WireGuard private key is never written to disk — it is passed to the kernel directly and the config file is deleted immediately after interface setup.
 
 ---
 
-## 📊 Web Dashboard
+## Server
 
-Access via:
+The server is optional. Without it, the CLI works fully offline with local anchors that do not reference vault secrets.
 
-```
-http://localhost:17017/dashboard
-```
-Still in development
+The server provides:
 
----
+- **Vault**: AES-256-GCM encrypted secrets with per-secret HKDF key derivation, versioning (up to 10), and user/group access control.
+- **Anchor sync**: push/pull anchors across machines or team members.
+- **WireGuard control plane**: peer registration, lease management, SPA knock listener.
+- **Web UI**: secrets management, user administration.
+- **Service tokens**: scoped API keys (`vault:read`, `vault:write`, `anchors:read`, `anchors:write`, `admin`) for CI/CD and Kubernetes init containers.
+- **Auth**: local users (bcrypt) or LDAP/Active Directory.
 
-## 🧠 Philosophy
-
-`anc` treats configuration, environments, and actions as executable knowledge.  
-Every anchor is portable, inspectable, and composable — designed to work locally, remotely, or across teams.
-
-> From personal workspace shortcuts to distributed automation workflows.
+See [server/README.md](server/README.md) for setup, configuration, API reference, and Kubernetes integration.
 
 ---
 
+## Filter Expressions
+
+Both `anc ls` and `anc pull` accept filter expressions:
+
+```bash
+anc ls -f "type=ssh"
+anc ls -f "meta.env=prod AND type~ssh"
+anc ls -f "groups~devops OR meta.project=infra"
+```
+
+Operators: `=` (exact), `!=` (not equal), `~` (contains), `!~` (not contains). Logical: `AND`, `OR`.
+
+---
+
+## Planned Features
+
+- **Service token CLI (`anc token`)**: create and manage scoped API keys from the CLI without accessing the server UI. This is the primary integration path for Kubernetes and CI/CD pipelines — a pipeline requests only the scopes it needs, the token is short-lived, and Anchor is the single source of truth for secret injection.
+
+- **GitHub SSH middleware**: use Anchor as a proxy layer for SSH-based Git access to organization repositories. Developer SSH keys are stored in the vault; Anchor validates identity and injects the key for the duration of the operation. Private keys are never distributed — the vault is the only copy.
+
+- **Security audit and test coverage**: the codebase currently has no automated tests. Planned work includes unit and integration tests for vault operations, secret resolution, SPA packet handling, and the rsync transfer layer.
+
+- **CSPRNG replacement**: several areas use Python's `random` module, which is not cryptographically secure. These will be replaced with `secrets` (stdlib) or `os.urandom` throughout — particularly in token generation, nonce handling, and any place randomness feeds into a security decision.
+
+- **Distroless Dockerfile** 

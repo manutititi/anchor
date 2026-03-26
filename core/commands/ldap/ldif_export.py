@@ -1,3 +1,4 @@
+# TO DELETE
 from core.utils.colors import green
 
 def export_ldif(entries, path):

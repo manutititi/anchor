@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# TO DELETE
 
 anc_show_anchor() {
   local anchor="$1"

@@ -7,25 +7,53 @@
     "version_notes": "Evolving from a shell utility to a complete DevOps/developer tool.",
     "install_dir": "~/.anchors"
   },
-
   "stack": {
-    "languages": ["Python 3", "Bash/Shell", "YAML", "JSON"],
-    "frameworks": ["FastAPI", "Uvicorn (ASGI)"],
-    "databases": ["MongoDB 6.0"],
+    "languages": [
+      "Python 3",
+      "Bash/Shell",
+      "YAML",
+      "JSON"
+    ],
+    "frameworks": [
+      "FastAPI",
+      "Uvicorn (ASGI)"
+    ],
+    "databases": [
+      "MongoDB 6.0"
+    ],
     "key_python_libs": {
-      "CLI": ["argparse", "jinja2", "simpleeval", "requests", "ldap3", "PyYAML", "pycryptodome"],
-      "server": ["fastapi", "uvicorn", "pymongo", "pydantic", "python-jose", "ldap3", "pycryptodome"]
+      "CLI": [
+        "argparse",
+        "jinja2",
+        "simpleeval",
+        "requests",
+        "ldap3",
+        "PyYAML",
+        "pycryptodome"
+      ],
+      "server": [
+        "fastapi",
+        "uvicorn",
+        "pymongo",
+        "pydantic",
+        "python-jose",
+        "ldap3",
+        "pycryptodome"
+      ]
     },
-    "infrastructure": ["Docker", "Docker Compose", "Ansible", "LDAP / Active Directory"]
+    "infrastructure": [
+      "Docker",
+      "Docker Compose",
+      "Ansible",
+      "LDAP / Active Directory"
+    ]
   },
-
   "entry_points": {
     "bash_wrapper": "functions/anchors.sh — defines the anc() shell function, routes all subcommands, calls Python CLI",
     "python_cli": "core/main.py — argparse-based entry point, registers all subcommands",
     "fastapi_server": "server/code/server.py — FastAPI app, port 17017",
     "docker": "server/docker-compose.yml — anc-server (FastAPI) + mongodb services"
   },
-
   "installation": {
     "script": "install.sh",
     "steps": [
@@ -45,7 +73,6 @@
       "ANCHOR_ROOT": "Root of installation"
     }
   },
-
   "directory_structure": {
     "core/": "Python CLI source — commands, utils, main entry point",
     "core/main.py": "Argparse setup; registers all subcommands; resolves env vars",
@@ -124,7 +151,6 @@
     "uninstall.sh": "Uninstallation script",
     "requirements.txt": "CLI Python dependencies"
   },
-
   "anchor_types": {
     "local": "Local filesystem path; captures Git branch/commit/dirty state and Docker metadata",
     "ssh": "Remote SSH location with host, user, key/password",
@@ -137,24 +163,38 @@
     "docker": "Docker service / docker-compose configuration",
     "workflow": "Declarative sequential task list"
   },
-
   "anchor_schema_example": {
     "type": "local",
     "name": "myproject",
     "path": "~/myproject",
-    "groups": ["dev"],
+    "groups": [
+      "dev"
+    ],
     "created_at": "ISO8601",
     "git": {
       "root": "abs path",
       "branch": "main",
-      "commit": { "hash": "abc123", "author": "user", "date": "...", "message": "..." },
+      "commit": {
+        "hash": "abc123",
+        "author": "user",
+        "date": "...",
+        "message": "..."
+      },
       "is_dirty": false
     },
-    "docker": { "active": true, "services": ["web", "db"] },
+    "docker": {
+      "active": true,
+      "services": [
+        "web",
+        "db"
+      ]
+    },
     "note": "human-readable note",
-    "meta": { "env": "prod", "project": "web" }
+    "meta": {
+      "env": "prod",
+      "project": "web"
+    }
   },
-
   "filter_expression_language": {
     "description": "Used for both local (Python lambda) and server-side (MongoDB query) filtering",
     "operators": {
@@ -163,7 +203,10 @@
       "~": "substring / contains",
       "!~": "not contains / not regex"
     },
-    "logical": ["AND", "OR"],
+    "logical": [
+      "AND",
+      "OR"
+    ],
     "nested_keys": "dot notation, e.g. endpoint.base_url=localhost",
     "examples": [
       "env=prod AND project=web",
@@ -171,10 +214,17 @@
       "env!=dev"
     ]
   },
-
   "workflow_system": {
     "file": "core/commands/wf.py",
-    "task_types": ["anc", "shell", "files", "api", "sleep", "watch", "set"],
+    "task_types": [
+      "anc",
+      "shell",
+      "files",
+      "api",
+      "sleep",
+      "watch",
+      "set"
+    ],
     "features": [
       "Jinja2 template rendering for variables",
       "Secret resolution via [[secret:id]] markers",
@@ -184,26 +234,43 @@
       "Error handling: continue or fail"
     ]
   },
-
   "secret_management": {
     "encryption": "AES-256-GCM with HKDF-SHA256 key derivation (one key per secret, derived from VAULT_MASTER_KEY)",
     "storage": "MongoDB ref collection (server-side)",
     "versioning": "Up to 10 versions per secret stored in secret_versions collection",
     "resolution": "[[secret:id]] markers resolved by core/utils/secrets.py at runtime",
     "access_control": "User-level and group-level policies stored with each secret; scope-based for service tokens",
-    "cli_commands": ["secret ls", "secret get", "secret push", "secret update", "secret del"],
+    "cli_commands": [
+      "secret ls",
+      "secret get",
+      "secret push",
+      "secret update",
+      "secret del"
+    ],
     "kubernetes": "Service tokens (anc_...) can be injected via X-API-Key header in init containers"
   },
-
   "authentication": {
-    "methods": ["local (bcrypt/MongoDB)", "LDAP (optional)", "service tokens (API keys)"],
+    "methods": [
+      "local (bcrypt/MongoDB)",
+      "LDAP (optional)",
+      "service tokens (API keys)"
+    ],
     "token_expiry": "60 minutes (JWT)",
-    "token_payload": ["sub (username)", "groups", "token_type"],
+    "token_payload": [
+      "sub (username)",
+      "groups",
+      "token_type"
+    ],
     "server_info_file": "~/.anchors/server/info.json — stores url and token",
     "service_token_prefix": "anc_ — detected automatically in Bearer header or X-API-Key",
-    "service_token_scopes": ["vault:read", "vault:write", "anchors:read", "anchors:write", "admin"]
+    "service_token_scopes": [
+      "vault:read",
+      "vault:write",
+      "anchors:read",
+      "anchors:write",
+      "admin"
+    ]
   },
-
   "server_api": {
     "base_port": 17017,
     "endpoints": {
@@ -244,7 +311,6 @@
       "GET /db/pull/{name}": "→ GET /anchors/{name}"
     }
   },
-
   "known_issues_and_observations": {
     "dual_implementation": "Many features are partially implemented in Bash (functions/) and Python (core/). The Bash layer calls Python for most operations but some logic is duplicated.",
     "functions_dir_is_legacy": "The functions/ directory contains older Bash implementations that are increasingly superseded by anchor/ Python code.",
@@ -257,7 +323,6 @@
     "cd_requires_shell_shim": "Unix process isolation means a subprocess cannot change the parent shell's cwd. The anc shell function in anchor/shell/anc.sh is mandatory for local anchor navigation. For local anchors it reads the JSON directly (jq or python3 -c) to avoid any Python CLI startup.",
     "ssh_agent_requires_openssh_client": "SshHandler uses ssh-agent + ssh-add for in-memory key injection. Requires openssh-client (ssh-agent, ssh-add, ssh binaries). sshpass is optional for password auth injection."
   },
-
   "refactor_priorities": {
     "note": "This section should be updated by each refactor chat session with decisions and progress.",
     "high": [
@@ -272,7 +337,7 @@
       "WireGuard Fase 2–4: DONE — see session 19 in refactor_log"
     ],
     "medium": [
-      "Port remaining commands to anchor/: ls --remote, wf, sible, url, del, meta, edit",
+      "Port remaining commands to anchor/: run, del, meta, edit, sible (inventory only)",
       "Add anc env <name> command (source .env file — requires shell shim like local)",
       "Consolidate filter logic: anchor/utils/filter.py now canonical (no eval)",
       "Add terminal resize (SIGWINCH) forwarding in SshHandler during interactive session",
@@ -284,6 +349,7 @@
       "Consider anc config command for managing ~/.config/anchor/config.toml"
     ],
     "done": [
+      "CLI refactor audit + TO DELETE marking + ls --remote + URL handler (session 33): Marked 46 legacy files (core/commands/*, functions/*.sh) with # TO DELETE. Created anchor/handlers/url.py (UrlHandler, opens base_url in browser). Added -r/--remote flag to anc ls (queries GET /anchors from server). Decided: wf.py → TO DELETE, ldap → TO DELETE, sible → inventory-only redefinition.",
       "WireGuard dashboard overhaul (session 27): Live Peers table (sidecar online/age/rx/tx), VPN Users+Leases fusionados, DNS dinámico sin default, logs de provisión (secret create + vpn_lease grant), fix ownership de secreto vault al usuario destino",
       "WireGuard VPN Fase 1 (Control Plane): vpn/ package (ip_pool atomic alloc, sidecar client, router, janitor), integrations/wireguard/ (provider + config model), /vpn/* endpoints, wireguard.html UI, pyotp dep, vpn_leases+vpn_ip_pool MongoDB collections",
       "anc <name> dispatch system + SSH secure key injection: anchor/handlers/ + LocalHandler + SshHandler (ssh-agent temporal, zero disk) + anc go / anc _type + anc go --pubkey + anchor/shell/anc.sh (jq-fast for local) + docs/security/ssh.md",
@@ -300,8 +366,50 @@
       "Unified auth middleware supporting JWT + service tokens + X-API-Key header"
     ]
   },
-
   "refactor_log": [
+    {
+      "date": "2026-03-26",
+      "session": 33,
+      "change": "CLI refactor audit + marking + cr/rc/cp migration: (1) Marked 46 legacy files with # TO DELETE — all core/commands/ files with replacements in anchor/ (set/, ls, push, pull, secret/, server/, ldap/, doc, url, wf, cr, rc) + 8 shell functions (set.sh, set_ssh.sh, set_url.sh, server.sh, help.sh, man.sh, show.sh, edit.sh). (2) Created anchor/handlers/url.py — UrlHandler opens base_url in default browser via webbrowser.open(), registered in handlers/__init__.py. (3) Added -r/--remote flag to anchor/commands/ls.py — queries GET /anchors from server with filter support, shared table renderer for local and remote. (4) Migrated cr and rc to anchor/commands/ — cr.py: Typer CLI with --mode/--blank/--force, captures files/dirs to files anchor with encoding detection, permissions, privilege path detection. rc.py: Typer CLI with --yes, restores files with replace/append/prepend/regex modes, MD5 skip-unchanged, sudo escalation, pre/postload scripts, ownership. Both registered in cli.py. (5) Created anchor/commands/cp.py — rsync-based file transfer between anchors/paths. Supports local↔local, local↔ssh, ssh↔local, ssh↔ssh (via relay). Uses same ssh-agent temporal pattern as SshHandler for PEM keys in memory, sshpass pipe for passwords. --exclude flag for filtering. --dry-run. Reuses _normalize_pem/_parse_agent_pid from handlers/ssh.py. (6) Decisions: wf.py marked TO DELETE, ldap/ marked TO DELETE, sible → inventory-only.",
+      "files_touched": [
+        "anchor/handlers/url.py",
+        "anchor/handlers/__init__.py",
+        "anchor/commands/ls.py",
+        "core/commands/wf.py",
+        "core/commands/ls.py",
+        "core/commands/push.py",
+        "core/commands/pull.py",
+        "core/commands/doc.py",
+        "core/commands/url.py",
+        "core/commands/set.py",
+        "core/commands/server.py",
+        "core/commands/set/",
+        "core/commands/ldap/",
+        "core/commands/server/",
+        "core/commands/secret/",
+        "anchor/commands/cr.py",
+        "anchor/commands/rc.py",
+        "anchor/commands/cp.py",
+        "anchor/cli.py",
+        "functions/set.sh",
+        "functions/set_ssh.sh",
+        "functions/set_url.sh",
+        "functions/server.sh",
+        "functions/help.sh",
+        "functions/man.sh",
+        "functions/show.sh",
+        "functions/edit.sh"
+      ]
+    },
+    {
+      "date": "2026-03-11",
+      "session": 32,
+      "change": "Fixed three bugs in SPA knock/reprovisioning flow: (1) admin_revoke_otp ($unset) borraba vpn_uid junto con otp_seed_enc — al re-provisionar assign_vpn_uid asignaba un uid nuevo (IP diferente), causando IP mismatch: WG handshake pasaba (es DH puro) pero HTTP a través del tunnel fallaba → lease quedaba stuck en onboarding. Fix: solo hacer $unset de otp_seed_enc; vpn_uid es estable y se preserva. (2) admin_provision_otp y admin_provision_full siempre llamaban generate_otp_seed() — cada re-provisión generaba un seed nuevo e invalidaba el QR del usuario en su authenticator app → TOTP incorrecto → knock silenciosamente dropeado → peer nunca registrado → 0 B received → handshake timeout. Fix: reutilizar seed existente con get_otp_seed(); solo generar uno nuevo si no existe (primera provisión). Para resetear intencionalmente el seed: DELETE /admin/users/{u}/otp primero. (3) CLI: aumentado sleep post-knock de 3s a 5s para dar más margen al thread pool del servidor + sidecar.",
+      "files_touched": [
+        "server/code/vpn/router.py",
+        "anchor/commands/vpn.py"
+      ]
+    },
     {
       "date": "2026-03-10",
       "session": 31,
@@ -362,7 +470,9 @@
       "date": "2026-03-01",
       "session": 26,
       "change": "assign_vpn_uid: fix para DBs existentes con vpn_uid=2 stale. Añadida constante DYNAMIC_UID_MIN=3. assign_vpn_uid() ahora detecta UIDs en rango reservado (<3), los limpia del user doc y cae al contador para asignar uno válido. Doble safety net: si el contador mismo devuelve un uid <3, lo fuerza a DYNAMIC_UID_MIN-1 y reincrementa.",
-      "files_touched": ["server/code/vpn/otp.py"]
+      "files_touched": [
+        "server/code/vpn/otp.py"
+      ]
     },
     {
       "date": "2026-03-01",
@@ -563,7 +673,9 @@
       "date": "2026-02-28",
       "session": 11,
       "change": "Fixed anchors UI expand row: Alpine.js v3 x-for requires a single root element inside <template> — having two sibling <tr> caused the second (expanded JSON) row to be silently ignored. Fixed by wrapping both <tr> in a <tbody> per iteration (valid HTML: a table can have multiple tbody). Also removed max-h-72 from the <pre> so the full JSON is visible without vertical scroll. Removed x-cloak from the expand row (x-show already handles initial visibility).",
-      "files_touched": ["server/templates/anchors.html"]
+      "files_touched": [
+        "server/templates/anchors.html"
+      ]
     },
     {
       "date": "2026-02-27",
@@ -709,6 +821,14 @@
         "server/docker-compose.yml",
         "server/requirements.txt",
         "server/init-mongo.js"
+      ]
+    },
+    {
+      "date": "2026-03-12",
+      "session": 31,
+      "change": "Added docs/features/knock.md — detailed code-level documentation of the SPA v2 knock flow: packet layout, crypto, CLI build steps, server processing steps (parse_packet, anti-replay, OTP, sidecar), lease lifecycle, MongoDB collections, and full anc vpn up sequence.",
+      "files_touched": [
+        "docs/features/knock.md"
       ]
     }
   ]

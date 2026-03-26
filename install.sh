@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Anchor CLI installer / updater
 #
-# Safe to run multiple times — never deletes user data.
-# On re-run it upgrades the package and refreshes the shell wrapper.
+# - Safe to run multiple times — never deletes user data.
+# - Copies the package into the venv (no editable link to source).
+# - Re-run to upgrade: pulls latest code, reinstalls into venv.
 set -euo pipefail
 
 # ------------------------------------------------------------------
@@ -12,6 +13,7 @@ ANCHOR_HOME="${ANCHOR_HOME:-"$HOME/.anchors"}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$ANCHOR_HOME/venv"
 SHELL_DIR="$ANCHOR_HOME/shell"
+COMP_DIR="$ANCHOR_HOME/completions"
 
 # ------------------------------------------------------------------
 # Colors
@@ -51,6 +53,7 @@ fi
 section "Directories"
 mkdir -p "$ANCHOR_HOME/data"
 mkdir -p "$SHELL_DIR"
+mkdir -p "$COMP_DIR"
 if $IS_UPDATE; then
     info "Data preserved: $ANCHOR_HOME/data"
 else
@@ -58,7 +61,31 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 2. Python check (3.10+)
+# 2. System dependencies
+# ------------------------------------------------------------------
+section "System dependencies"
+
+MISSING=()
+
+for cmd in python3 ssh rsync jq sshpass wg wg-quick; do
+    if command -v "$cmd" &>/dev/null; then
+        dim "$cmd — $(command -v "$cmd")"
+    else
+        MISSING+=("$cmd")
+    fi
+done
+
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    error "Missing required: ${MISSING[*]}"
+    echo ""
+    echo "  Install with:"
+    echo "    sudo apt install ${MISSING[*]}"
+    echo ""
+    exit 1
+fi
+
+# ------------------------------------------------------------------
+# 3. Python check (3.10+)
 # ------------------------------------------------------------------
 section "Python"
 PYTHON_BIN=""
@@ -80,11 +107,10 @@ fi
 info "Using $PYTHON_BIN ($("$PYTHON_BIN" --version))"
 
 # ------------------------------------------------------------------
-# 3. Virtual environment
+# 4. Virtual environment
 # ------------------------------------------------------------------
 section "Virtual environment"
 if [[ -d "$VENV_DIR" ]]; then
-    # Check if the venv's Python still works (breaks after system Python upgrades)
     if ! "$VENV_DIR/bin/python" -c "import sys" &>/dev/null; then
         warn "Existing venv is broken (Python was likely upgraded). Recreating…"
         rm -rf "$VENV_DIR"
@@ -103,21 +129,34 @@ fi
 source "$VENV_DIR/bin/activate"
 
 # ------------------------------------------------------------------
-# 4. Install / upgrade anchor package
+# 5. Install / upgrade anchor package (non-editable)
 # ------------------------------------------------------------------
 section "Installing anchor CLI"
 pip install --quiet --upgrade pip
-pip install --quiet --upgrade -e "$SRC_DIR[vpn]"
 
-ANC_BIN=$(which anc 2>/dev/null || echo "$VENV_DIR/bin/anc")
-if $IS_UPDATE; then
-    info "anchor-cli upgraded → $ANC_BIN"
+# Non-editable install: copies code into venv/lib/python3.X/site-packages/
+# Re-running install.sh always picks up changes from the source directory.
+pip install --quiet --upgrade --force-reinstall "$SRC_DIR[vpn]"
+
+ANC_BIN="$VENV_DIR/bin/anc"
+if [[ -x "$ANC_BIN" ]]; then
+    if $IS_UPDATE; then
+        info "anchor-cli upgraded → $ANC_BIN"
+    else
+        info "anchor-cli installed → $ANC_BIN"
+    fi
 else
-    info "anchor-cli installed → $ANC_BIN"
+    error "anc binary not found after install — check pip output above"
+    exit 1
 fi
 
+# Show installed version
+ANC_VER=$("$ANC_BIN" --version 2>/dev/null || "$VENV_DIR/bin/python" -c \
+    "from importlib.metadata import version; print(version('anchor-cli'))" 2>/dev/null || echo "?")
+dim "Version: $ANC_VER"
+
 # ------------------------------------------------------------------
-# 5. Shell wrapper — always overwrite with latest version from source
+# 6. Shell wrapper
 # ------------------------------------------------------------------
 section "Shell wrapper"
 WRAPPER_SRC="$SRC_DIR/anchor/shell/anc.sh"
@@ -141,7 +180,25 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 6. Shell config — idempotent, only adds missing lines
+# 7. Bash completion
+# ------------------------------------------------------------------
+section "Completions"
+COMP_SRC="$SRC_DIR/completions/anc"
+COMP_DST="$COMP_DIR/anc.bash"
+
+if [[ -f "$COMP_SRC" ]]; then
+    if [[ -f "$COMP_DST" ]] && diff -q "$COMP_SRC" "$COMP_DST" &>/dev/null; then
+        info "Bash completion up to date"
+    else
+        cp "$COMP_SRC" "$COMP_DST"
+        info "Bash completion installed → $COMP_DST"
+    fi
+else
+    dim "No completion file found — skipping"
+fi
+
+# ------------------------------------------------------------------
+# 8. Shell config — idempotent, only adds missing lines
 # ------------------------------------------------------------------
 section "Shell configuration"
 
@@ -149,7 +206,7 @@ add_if_missing() {
     local file="$1" marker="$2" line="$3"
     [[ -f "$file" ]] || return 0
     if grep -qF "$marker" "$file"; then
-        dim "Already set in $file"
+        dim "Already set in $(basename "$file"): $marker"
         return 0
     fi
     echo "" >> "$file"
@@ -161,6 +218,7 @@ add_if_missing() {
 PATH_LINE="export PATH=\"$VENV_DIR/bin:\$PATH\""
 DATA_LINE="export ANCHOR_DIR=\"$ANCHOR_HOME/data\""
 WRAP_LINE="[[ -f \"$WRAPPER_DST\" ]] && source \"$WRAPPER_DST\""
+COMP_LINE="[[ -f \"$COMP_DST\" ]] && source \"$COMP_DST\""
 
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
     [[ -f "$rc" ]] || continue
@@ -168,6 +226,7 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
     add_if_missing "$rc" "$VENV_DIR/bin" "$PATH_LINE"
     add_if_missing "$rc" "ANCHOR_DIR"    "$DATA_LINE"
     add_if_missing "$rc" "anc.sh"        "$WRAP_LINE"
+    add_if_missing "$rc" "anc.bash"      "$COMP_LINE"
 done
 
 # ------------------------------------------------------------------
@@ -187,7 +246,11 @@ else
     echo "  Reload your shell:   source ~/.bashrc"
 fi
 echo ""
-echo "  Login to server:     anc login --url http://localhost:17017"
+echo -e "  ${DIM}Installed at:${RESET}     $ANCHOR_HOME"
+echo -e "  ${DIM}Binary:${RESET}           $ANC_BIN"
+echo -e "  ${DIM}Data:${RESET}             $ANCHOR_HOME/data"
+echo ""
+echo "  Login to server:     anc login --url http://your-server:17017"
 echo "  List anchors:        anc ls"
 echo "  Navigate:            anc myproject       # cd (local) or SSH session"
 echo ""

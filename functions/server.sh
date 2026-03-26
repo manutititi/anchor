@@ -1,3 +1,4 @@
+# TO DELETE
 anc_server_name() {
     local server_dir="$(dirname "${BASH_SOURCE[0]}")/../server"
     local server_file="$server_dir/info.json"

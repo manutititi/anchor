@@ -1,11 +1,13 @@
 """
-anc ls — list local anchors with optional filtering.
+anc ls — list anchors with optional filtering.
 
 Examples:
     anc ls
     anc ls -f "type=ssh"
     anc ls -f "meta.env=prod AND type~ssh"
     anc ls -t url
+    anc ls -r                    # list anchors on the server
+    anc ls -r -f "type=ssh"     # filter server-side anchors
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from rich.table import Table
 
 from anchor.store import list_anchors
 from anchor.utils.filter import parse_filter
-from anchor.utils.output import out
+from anchor.utils.output import err, out
 
 # Map anchor type → Rich color
 _TYPE_COLOR: dict[str, str] = {
@@ -43,9 +45,24 @@ def ls(
         None, "--type", "-t",
         help="Filter by anchor type (shorthand for -f type=<type>)",
     ),
+    remote: bool = typer.Option(
+        False, "--remote", "-r",
+        help="List anchors from the server instead of local storage",
+    ),
 ) -> None:
-    """List local anchors."""
+    """List anchors (local by default, or remote with -r)."""
 
+    if remote:
+        _ls_remote(filter_str, type_filter)
+    else:
+        _ls_local(filter_str, type_filter)
+
+
+# ---------------------------------------------------------------------------
+# Local listing
+# ---------------------------------------------------------------------------
+
+def _ls_local(filter_str: str | None, type_filter: str | None) -> None:
     filter_fn = None
     if filter_str:
         filter_fn = parse_filter(filter_str)
@@ -58,6 +75,53 @@ def ls(
         out.print("[dim]No anchors found.[/dim]")
         return
 
+    _print_table([(name, data) for name, data in anchors])
+
+
+# ---------------------------------------------------------------------------
+# Remote listing
+# ---------------------------------------------------------------------------
+
+def _ls_remote(filter_str: str | None, type_filter: str | None) -> None:
+    from anchor.client import AnchorClient, AnchorClientError
+
+    try:
+        client = AnchorClient()
+    except AnchorClientError as exc:
+        err.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(1)
+
+    params: dict = {}
+    # Build server-side filter
+    if filter_str:
+        params["filter"] = filter_str
+    elif type_filter:
+        params["filter"] = f"type={type_filter}"
+
+    try:
+        resp = client.get("/anchors", params=params)
+    except AnchorClientError as exc:
+        err.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(1)
+
+    if resp.status_code != 200:
+        err.print(f"[red]✗ Server error ({resp.status_code}):[/red] {resp.text}")
+        raise typer.Exit(1)
+
+    anchors: list[dict] = resp.json()
+    if not anchors:
+        out.print("[dim]No remote anchors found.[/dim]")
+        return
+
+    out.print(f"[dim]server — {len(anchors)} anchor(s)[/dim]\n")
+    _print_table([(a.get("name", "?"), a) for a in anchors])
+
+
+# ---------------------------------------------------------------------------
+# Shared table renderer
+# ---------------------------------------------------------------------------
+
+def _print_table(anchors: list[tuple[str, dict]]) -> None:
     table = Table(
         show_header=True,
         header_style="bold",

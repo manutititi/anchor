@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# TO DELETE
 
 anc_handle_copy_or_move() {
   local cmd="$1"

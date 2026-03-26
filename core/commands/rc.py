@@ -1,3 +1,4 @@
+# TO DELETE
 #core/commands/rc.py
 
 import os

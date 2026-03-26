@@ -45,9 +45,11 @@ def _setup() -> None:
     """Register all built-in handlers. Called once at import time."""
     from anchor.handlers.local import LocalHandler
     from anchor.handlers.ssh import SshHandler
+    from anchor.handlers.url import UrlHandler
 
     register("local", LocalHandler())
     register("ssh", SshHandler())
+    register("url", UrlHandler())
 
 
 _setup()

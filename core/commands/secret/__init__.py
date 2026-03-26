@@ -1,3 +1,4 @@
+# TO DELETE
 from . import ls, get, pull, update, push, del_cmd
 
 def run(subcommand, args):

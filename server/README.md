@@ -56,7 +56,7 @@ Output:
 
 ### Create the first admin user
 
-On a fresh install (no users in the database), `POST /admin/users` is open without authentication. After the first user is created, admin auth is required.
+On a fresh install (no users in the database), `POST /admin/users` is open without authentication. After the first user is created, admin auth is required. **Can be done in the UI**
 
 ```bash
 curl -X POST http://localhost:17017/admin/users \

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# TO DELETE
 
 anc_handle_set_url() {
   local name="$1"

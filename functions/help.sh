@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# TO DELETE
 
 anc_handle_help() {
   local BOLD="\033[1m"
