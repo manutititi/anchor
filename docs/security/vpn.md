@@ -60,17 +60,34 @@ El servidor **nunca responde al knock** (UDP sin respuesta). Si el paquete es in
 ---
 
 ### 2. Par de claves WireGuard — Curve25519 (cliente)
-#### TODO - Someone can sniff the file and play manually. Need server ip rules to prevent
+
 **Para qué sirve:** autenticar el túnel WireGuard. La clave pública se envía en el knock cifrado; el servidor la registra como peer autorizado.
 
 | Elemento | Dónde vive |
 |---|---|
-| Clave privada | Generada en memoria en cada `anc vpn up`. Se escribe en `/dev/shm/anc-vpn.conf` (tmpfs RAM, nunca toca disco), se pasa a `wg-quick` y el fichero se borra inmediatamente. |
+| Clave privada | Generada en memoria en cada `anc vpn up`. Se pasa a `wg set` por stdin — nunca toca ningún sistema de ficheros, ni siquiera tmpfs. |
 | Clave pública | Se incluye en el paquete de knock cifrado. El servidor la almacena en el lease de MongoDB y la entrega al sidecar WireGuard. |
 
-**`/dev/shm` vs `/tmp`:** `/dev/shm` es un sistema de ficheros montado en RAM por el kernel. Los datos desaparecen al apagar el equipo y nunca se graban en disco. El fichero se crea con permisos `0600` (solo el propietario puede leerlo) y se elimina tan pronto como `wg-quick` termina de leer la configuración.
+**Cómo funciona el transporte de la clave privada:**
 
-**Por qué es segura:** la clave privada WireGuard nunca persiste en disco. Si el portátil del usuario es robado, no hay clave que robar. Si otro proceso en el mismo equipo intenta leer `/dev/shm/anc-vpn.conf`, los permisos `0600` lo impiden, y para cuando el atacante reaccionara el fichero ya habría sido borrado.
+El CLI levanta el túnel con comandos directos de `wg` e `ip`, sin `wg-quick` y sin fichero de configuración intermedio:
+
+```
+Python (memoria)
+  │  privkey como string
+  ▼
+subprocess.run(["sudo", "wg", "set", WG_IFACE, "private-key", "/dev/stdin"],
+               input=privkey)
+  │  pipe anónimo (buffer del kernel)
+  ▼
+proceso wg (memoria) → módulo WireGuard del kernel
+```
+
+Un pipe anónimo no tiene inode en ningún filesystem accesible. No aparece en `/proc` de otros procesos sin privilegios de root. La clave existe únicamente en el buffer del kernel durante los microsegundos que tarda el handshake con `wg set`.
+
+**Modelo anterior (reemplazado):** hasta la sesión 35, la private key se escribía en `/dev/shm/anc-vpn.conf` con permisos `0600` y se borraba tras `wg-quick`. Aunque el fichero nunca llegaba a disco (tmpfs RAM), existía en el VFS con nombre predecible durante ~100 ms — tiempo suficiente para que un proceso del mismo usuario o un `inotifywait` lo leyera.
+
+**Por qué es más segura:** no hay ventana de sniffing porque no hay fichero. La única superficie residual es un proceso con privilegios de root usando `ptrace` o leyendo `/proc/<pid>/mem`, escenario en el que la seguridad del host ya está completamente comprometida.
 
 ---
 
@@ -155,8 +172,8 @@ El `POST /vpn/promote` requiere un JWT válido obtenido con usuario y contraseñ
 | Escáner descubre el puerto de knock | Puerto silencioso — sin respuesta en ningún caso |
 | Paquete de knock capturado y reenviado | Anti-replay de nonces + ventana de timestamp ±30 s |
 | TOTP interceptado | TOTP de un solo uso + anti-replay; inútil pasados 30 s |
-| Clave privada WireGuard robada del disco | No hay clave en disco: `/dev/shm` + borrado inmediato |
-| Lectura de `/dev/shm/anc-vpn.conf` por otro proceso | Permisos `0600` + el fichero existe < 1 segundo |
+| Clave privada WireGuard robada del disco | No hay clave en disco ni en tmpfs: se pasa por pipe stdin al proceso `wg` |
+| Sniffing de `/dev/shm` por proceso del mismo usuario | Vector eliminado: no se escribe ningún fichero de configuración |
 | Cliente comprometido ve otros clientes VPN | `AllowedIPs = server_ip/32` — aislamiento estricto |
 | Robo del JWT | Solo válido dentro del túnel (HTTP interno, no expuesto a internet) |
 | Brecha en la base de datos (semilla TOTP) | Semilla cifrada con AES-256-GCM; sin la clave maestra del vault es inutilizable |
@@ -174,7 +191,7 @@ SERVIDOR
   TOTP seeds          → MongoDB, cifradas (AES-256-GCM + HKDF-SHA256)
 
 CLIENTE
-  WireGuard privkey   → /dev/shm/anc-vpn.conf (RAM, 0600, borrado < 1 s) → nunca en disco
+  WireGuard privkey   → pipe stdin al proceso wg → nunca toca ningún filesystem
   WireGuard pubkey    → generada en memoria, enviada en el knock cifrado
   TOTP app            → dispositivo del usuario (Google Authenticator, Authy, etc.)
   JWT                 → memoria del proceso + ~/.config/anchor/credentials.toml (0600)

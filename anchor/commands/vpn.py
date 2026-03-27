@@ -13,7 +13,8 @@ Dependencies (install with pip install 'anchor-cli[vpn]'):
   qrcode>=7.4      — ASCII QR code in terminal (optional, falls back to URL)
 
 External binaries (wireguard-tools, must be in PATH):
-  wg, wg-quick     — WireGuard key generation and tunnel management
+  wg               — WireGuard key generation and tunnel management
+  ip               — interface/route management (iproute2)
 """
 from __future__ import annotations
 
@@ -330,32 +331,73 @@ def _wg_genkey() -> tuple[str, str]:
         raise typer.Exit(1)
 
 
-def _wg_up(privkey: str, my_ip: str, server_pubkey: str, server_endpoint: str, allowed_ips: str) -> None:
-    """Bring up WireGuard interface via wg-quick.
-
-    The config is written to /dev/shm (RAM-backed tmpfs — never reaches disk)
-    with mode 0600, then deleted immediately after wg-quick reads it.
-    Falls back to /tmp if /dev/shm is unavailable.
-    """
-    conf = (
-        f"[Interface]\nAddress = {my_ip}/32\nPrivateKey = {privkey}\n\n"
-        f"[Peer]\nPublicKey = {server_pubkey}\nEndpoint = {server_endpoint}\n"
-        f"AllowedIPs = {allowed_ips}\nPersistentKeepalive = 25\n"
+def _wg_iface_exists() -> bool:
+    """Return True if the WireGuard interface is already present in the kernel."""
+    r = subprocess.run(
+        ["sudo", "ip", "link", "show", WG_IFACE],
+        capture_output=True,
     )
-    # Name must match WG_IFACE so wg-quick derives the right interface name.
-    shm = Path("/dev/shm") if Path("/dev/shm").is_dir() else Path("/tmp")
-    conf_path = shm / f"{WG_IFACE}.conf"
-    try:
-        conf_path.write_text(conf)
-        os.chmod(conf_path, 0o600)
-        r = subprocess.run(
-            ["sudo", "wg-quick", "up", str(conf_path)],
-            capture_output=True, text=True,
-        )
+    return r.returncode == 0
+
+
+def _wg_up(privkey: str, my_ip: str, server_pubkey: str, server_endpoint: str, allowed_ips: str) -> None:
+    """Bring up WireGuard interface using wg + ip commands.
+
+    The private key is passed to 'wg set' via stdin — it never touches disk
+    or any filesystem (no /dev/shm race window).
+
+    Idempotent: if the interface already exists it is torn down first so that
+    stale state (old peer, wrong IP) does not accumulate.
+    """
+    # Idempotency: remove any leftover interface before (re-)creating.
+    if _wg_iface_exists():
+        subprocess.run(["sudo", "ip", "link", "del", "dev", WG_IFACE], capture_output=True)
+
+    def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
+        r = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
         if r.returncode != 0:
-            raise RuntimeError(r.stderr.strip())
-    finally:
-        conf_path.unlink(missing_ok=True)
+            raise RuntimeError(f"{' '.join(cmd)}: {r.stderr.strip()}")
+        return r
+
+    # 1. Create WireGuard interface.
+    _run(["sudo", "ip", "link", "add", "dev", WG_IFACE, "type", "wireguard"])
+
+    try:
+        # 2. Assign IP address.
+        _run(["sudo", "ip", "addr", "add", f"{my_ip}/32", "dev", WG_IFACE])
+
+        # 3. Set private key via stdin — key never written to disk.
+        _run(
+            ["sudo", "wg", "set", WG_IFACE, "private-key", "/dev/stdin"],
+            input=privkey + "\n",
+        )
+
+        # 4. Register peer.
+        _run([
+            "sudo", "wg", "set", WG_IFACE,
+            "peer", server_pubkey,
+            "endpoint", server_endpoint,
+            "allowed-ips", allowed_ips,
+            "persistent-keepalive", "25",
+        ])
+
+        # 5. Bring interface up.
+        _run(["sudo", "ip", "link", "set", "dev", WG_IFACE, "up"])
+
+        # 6. Add routes for each CIDR in allowed_ips.
+        for cidr in allowed_ips.split(","):
+            cidr = cidr.strip()
+            if cidr:
+                # Ignore EEXIST — route may already be present (idempotent).
+                subprocess.run(
+                    ["sudo", "ip", "route", "add", cidr, "dev", WG_IFACE],
+                    capture_output=True,
+                )
+
+    except RuntimeError:
+        # Clean up the interface if any step failed.
+        subprocess.run(["sudo", "ip", "link", "del", "dev", WG_IFACE], capture_output=True)
+        raise
 
 
 def _wg_down() -> bool:
@@ -597,17 +639,13 @@ def vpn_up(
         otp_str = Prompt.ask("[cyan]Enter TOTP from your authenticator app")
     pkt = _build_spa_packet(uid, otp_str, pubkey, spa_pubkey_b64)
 
-    # Send 3 knock packets with 0.5s spacing — UDP has no delivery guarantee.
-    knock_count = 3
-    with console.status(f"[bold]Knocking {knock_host}:{knock_port} ({knock_count}x)…"):
+    # Single packet — the server anti-replay nonce index would discard any duplicate anyway.
+    with console.status(f"[bold]Knocking {knock_host}:{knock_port}…"):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            for i in range(knock_count):
-                sock.sendto(pkt, (knock_host, knock_port))
-                if debug:
-                    console.log(f"[dim]Knock {i+1}/{knock_count} sent ({len(pkt)} bytes)[/dim]")
-                if i < knock_count - 1:
-                    time.sleep(0.5)
+            sock.sendto(pkt, (knock_host, knock_port))
+            if debug:
+                console.log(f"[dim]Knock sent ({len(pkt)} bytes)[/dim]")
             sock.close()
         except Exception as exc:
             console.print(f"[red]UDP send failed:[/red] {exc}")
@@ -739,7 +777,8 @@ def vpn_up(
     table.add_row("Routes", ", ".join(routes_list))
     table.add_row("Server endpoint", server_endpoint)
     table.add_row("Server pubkey", server_pubkey[:16] + "…")
-    table.add_row("Lease expires", lease_expires.replace("T", " ").split(".")[0] + " UTC")
+    expires_str = lease_expires.replace("T", " ").split(".")[0] + " UTC" if lease_expires else "∞"
+    table.add_row("Lease expires", expires_str)
     table.add_row("Interface", WG_IFACE)
 
     console.print(Panel(table, title="[bold green]VPN Connected", border_style="green"))

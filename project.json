@@ -346,8 +346,18 @@
     ],
     "low": [
       "Add logging (structlog or stdlib logging) instead of print statements",
-      "Consider anc config command for managing ~/.config/anchor/config.toml"
+      "Consider anc config command for managing ~/.config/anchor/config.toml",
+      "SPA knock hardening — two fixes for concurrent-attack scenario (attacker with stolen TOTP seed running N parallel processes): (1) unique index on vpn_leases.uid in MongoDB to collapse lease race to a single insert; (2) mark TOTP code as used after successful verify_otp by storing {uid, otp_code} in a TTL collection (30s) with unique index on (uid, otp_code) — closes the only vector that nonce anti-replay does not cover.",
+      "Vault TTL + one-time secrets: add expires_at (MongoDB TTL index, auto-delete) and one_time flag (delete-on-read in GET /vault/{path}) to secret documents. CRITICAL: expires_at and one_time must be in the creator-only ACL bucket in PUT /vault/{path} — same as groups/users. If treated as a general editor field, any user with edit access can set expires_at=null and bypass the TTL. Currently expires_at is not processed in PUT at all (safe by omission), must stay creator-only when implemented."
     ],
+    "future_ideas": [
+      "VPN anchor type: new type='vpn' with provider field (wireguard|openvpn|anchor-spa) and linked_secret holding the credentials/config. Handler fetches secret at runtime and injects it — user knows nothing. WireGuard: key from vault → _wg_up() via stdin pipe (pattern already exists). OpenVPN: .ovpn from vault → openvpn --config /dev/stdin. Anchor SPA: provision token from vault → existing vpn up flow. No state complexity needed beyond what the kernel already exposes.",
+      "GitHub SSH via vault: NOT a proxy. Same philosophy as SshHandler — store GitHub SSH key in vault, inject into ssh-agent with TTL via 'ssh-add -t', user runs git normally, key is gone when TTL expires. The key never lives in ~/.ssh/ so there is nothing to exfiltrate. Supports identity segregation (github-personal vs github-work) as separate anchors. Implementation: SshHandler already does this — just needs an anchor pointing to github.com with the key as linked_secret.",
+      "LONG TERM — Browser extension: two responsibilities. (1) Secret injection: fill form fields from vault secrets without the user seeing or copying the value — similar to a password manager but backed by the Anchor vault via local API or token. (2) AI data sanitization: before sending text to any AI (ChatGPT, Claude, Copilot, etc.), intercept the request and scrub it against a user-configurable list of banned words/regex patterns (company names, internal hostnames, PII patterns, project codenames). The sanitized version goes to the AI; the user sees what was stripped. Vault integration means the banned-word lists themselves can be stored as secrets and kept in sync across the team.",
+      "LONG TERM — GUI client for non-technical users: desktop or web UI (Electron or Tauri, or just expand the existing server web UI) that exposes anchor navigation, VPN toggle, secret access, and file restore without any CLI knowledge. Core design constraint: must not expose raw secret values by default — same vault philosophy, the UI injects/uses secrets without showing them. Target persona: a team member who needs VPN + credentials + project access but is not a developer.",
+      "LONG TERM — Automated workspace onboarding: a single command or token that fully configures a new user's environment — pulls their anchors, injects their secrets, brings up their VPN, sets up SSH keys and GitHub access. Builds on the existing provision token concept but extended to the full workspace: 'anc onboard <token>' and the machine is ready to work. Eliminates the need for the user to manually run multiple 'anc' commands or know what anchors exist. Admin defines the workspace profile (which anchors, which secrets, which VPN) and the token encodes it.",
+      "VERY LONG TERM — Windows compatibility: the core blocker is that WireGuard management (ip link, wg set), ssh-agent injection, and shell integration are Linux/macOS-specific. WSL2 is a partial path but not a real solution for non-technical users. Native Windows would require: WireGuard Windows API (wireguard-nt), Windows OpenSSH agent (Pageant or the built-in), and a PowerShell or winget-based installer. Not worth approaching until the Linux/macOS surface is stable and there is concrete user demand."
+    ]
     "done": [
       "CLI refactor audit + TO DELETE marking + ls --remote + URL handler (session 33): Marked 46 legacy files (core/commands/*, functions/*.sh) with # TO DELETE. Created anchor/handlers/url.py (UrlHandler, opens base_url in browser). Added -r/--remote flag to anc ls (queries GET /anchors from server). Decided: wf.py → TO DELETE, ldap → TO DELETE, sible → inventory-only redefinition.",
       "WireGuard dashboard overhaul (session 27): Live Peers table (sidecar online/age/rx/tx), VPN Users+Leases fusionados, DNS dinámico sin default, logs de provisión (secret create + vpn_lease grant), fix ownership de secreto vault al usuario destino",
@@ -367,6 +377,15 @@
     ]
   },
   "refactor_log": [
+    {
+      "date": "2026-03-27",
+      "session": 35,
+      "change": "Security hardening — WireGuard private key no longer written to /dev/shm. Replaced _wg_up() (wg-quick + tmpfs config file) with direct wg+ip commands: ip link add, ip addr add, wg set private-key /dev/stdin (key passed via subprocess stdin pipe, never touches any filesystem), wg set peer, ip link set up, ip route add. Added _wg_iface_exists() for idempotency (tears down stale interface before re-creating). Error path does cleanup via ip link del. Updated docs/security/vpn.md: rewrote section 2 to document the stdin pipe model, added explanation of the old /dev/shm approach and why it was replaced, updated threat model table and key storage summary. Also updated module docstring to drop wg-quick dependency.",
+      "files_touched": [
+        "anchor/commands/vpn.py",
+        "docs/security/vpn.md"
+      ]
+    },
     {
       "date": "2026-03-26",
       "session": 34,
