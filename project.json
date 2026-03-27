@@ -326,7 +326,6 @@
   "refactor_priorities": {
     "note": "This section should be updated by each refactor chat session with decisions and progress.",
     "high": [
-      "Add tab-completion for the new anchor/ CLI (typer --install-completion)",
       "Add tests for anchor/ package — zero coverage on new code",
       "Migrate/deprecate old core/ and functions/ after new CLI is stable"
     ],
@@ -377,6 +376,12 @@
     ]
   },
   "refactor_log": [
+    {
+      "date": "2026-03-27",
+      "session": 36,
+      "change": "Rewrote completions/anc bash completion script for the new anchor/ Typer CLI. Covers: bare anchor name dispatch (pos 1), all subcommands (login, set, pull, push, ls, path, go, cr, rc, cp), secret subgroup (ls/get/push/update/del), vpn subgroup (init/up/down/status). Dynamic anchor name completion reads $ANCHOR_DIR/~/.anchors/data/*.json. Per-command flag completion (ls: -f/-t/-r; go: --pubkey; cp: -e/--exclude/-n/--dry-run; ls --type: anchor type values). cp anchor/path completion resolves anchor base_path via jq and completes subdirectories. Data dir updated from old ~/.anchors to ~/.anchors/data (matches config.py).",
+      "files_touched": ["completions/anc"]
+    },
     {
       "date": "2026-03-27",
       "session": 35,

@@ -1,57 +1,240 @@
-_anc_autocomplete() {
-  local cur prev anchor_dir cmd
-  anchor_dir="${ANCHOR_DIR:-$HOME/.anchors}"
-  cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD - 1]}"
+# Bash tab-completion for the `anc` CLI (anchor/ Typer-based entry point).
+#
+# Source from ~/.bashrc / ~/.zshrc, or drop in /etc/bash_completion.d/anc.
+# The install.sh script copies this to ~/.anchors/completions/anc and sources it.
 
-  # Obtener el comando (cp o mv si aplica)
-  if [[ ${COMP_CWORD} -ge 1 ]]; then
-    cmd="${COMP_WORDS[1]}"
-  fi
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-  # --- anc cp|mv <file> <anchor>/path ---
-  if [[ "$cmd" == "cp" || "$cmd" == "mv" ]]; then
-    if [[ $COMP_CWORD -eq 2 ]]; then
-      # Autocompletar archivos locales
-      COMPREPLY=($(compgen -f -- "$cur"))
-      return
-    elif [[ $COMP_CWORD -eq 3 ]]; then
-      local anchor="${cur%%/*}"
-      local subpath="${cur#*/}"
-
-      if [[ -f "$anchor_dir/$anchor" ]]; then
-        local real_path base_dir
-        real_path=$(cat "$anchor_dir/$anchor")
-
-        if [[ "$cur" == */* ]]; then
-          base_dir="$real_path/${subpath%/*}"
-          [[ -d "$base_dir" ]] || return
-          local partial="${subpath##*/}"
-
-          COMPREPLY=($(cd "$base_dir" && compgen -d -- "$partial"))
-          COMPREPLY=("${COMPREPLY[@]/%//}")
-          COMPREPLY=("${COMPREPLY[@]/#/$anchor/${subpath%/*}/}")
-          COMPREPLY=($(printf "%s\n" "${COMPREPLY[@]}" | sed 's|//|/|g'))
-        else
-          COMPREPLY=($(cd "$real_path" && compgen -d -- "$subpath"))
-          COMPREPLY=("${COMPREPLY[@]/#/$anchor/}")
-        fi
-      else
-        # Autocompletar anchors
-        local anchors=$(cd "$anchor_dir" && ls)
-        COMPREPLY=($(compgen -W "$anchors" -- "$cur"))
-      fi
-      return
+# List local anchor names (strips .json extension).
+_anc_names() {
+    local data_dir="${ANCHOR_DIR:-$HOME/.anchors/data}"
+    if [[ -d "$data_dir" ]]; then
+        (cd "$data_dir" && ls -- *.json 2>/dev/null) | sed 's/\.json$//'
     fi
-  fi
-
-  # --- anc <anchor> ---
-  if [[ $COMP_CWORD -eq 1 ]]; then
-    local anchors=$(cd "$anchor_dir" && ls)
-    COMPREPLY=($(compgen -W "$anchors" -- "$cur"))
-    return
-  fi
 }
 
-complete -o default -F _anc_autocomplete anc
+# Read a field from an anchor JSON file (requires jq or python3).
+_anc_json_field() {
+    local name="$1" field="$2"
+    local data_dir="${ANCHOR_DIR:-$HOME/.anchors/data}"
+    local file="$data_dir/${name}.json"
+    [[ -f "$file" ]] || return
+    if command -v jq &>/dev/null; then
+        jq -r ".${field} // \"\"" "$file" 2>/dev/null
+    else
+        python3 -c \
+            "import json,sys; d=json.load(open(sys.argv[1])); print(d.get(sys.argv[2],'')||'')" \
+            "$file" "$field" 2>/dev/null
+    fi
+}
 
+# Complete anchor/subpath for commands like `cp`.
+# Sets COMPREPLY to anchor names (with trailing /) or directory entries inside the anchor.
+_anc_complete_anchor_path() {
+    local cur="$1"
+    local data_dir="${ANCHOR_DIR:-$HOME/.anchors/data}"
+
+    if [[ "$cur" == */* ]]; then
+        # User already typed a slash: complete subdirectories within the anchor.
+        local anchor_name="${cur%%/*}"
+        local subpath="${cur#*/}"
+
+        if [[ -f "$data_dir/${anchor_name}.json" ]]; then
+            local base_path
+            base_path=$(_anc_json_field "$anchor_name" "path")
+            base_path="${base_path/#\~/$HOME}"
+
+            if [[ -d "$base_path" ]]; then
+                local sub_dir="${subpath%/*}"
+                local partial="${subpath##*/}"
+                local search_dir="$base_path"
+                [[ "$subpath" == */* ]] && search_dir="$base_path/$sub_dir"
+
+                local entries
+                entries=($(cd "$search_dir" 2>/dev/null && compgen -d -- "$partial"))
+                entries=("${entries[@]/%//}")
+                if [[ "$subpath" == */* ]]; then
+                    entries=("${entries[@]/#/$anchor_name/$sub_dir/}")
+                else
+                    entries=("${entries[@]/#/$anchor_name/}")
+                fi
+                COMPREPLY+=("${entries[@]}")
+                return
+            fi
+        fi
+        # Fallback: regular file completion
+        COMPREPLY+=($(compgen -f -- "$cur"))
+    else
+        # No slash yet: suggest anchor names (append /) and local files.
+        local names
+        names=$(_anc_names)
+        local name
+        for name in $names; do
+            [[ "$name" == "$cur"* ]] && COMPREPLY+=("$name/")
+        done
+        COMPREPLY+=($(compgen -f -- "$cur"))
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Main completion function
+# ---------------------------------------------------------------------------
+
+_anc_autocomplete() {
+    COMPREPLY=()
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local prev="${COMP_WORDS[COMP_CWORD-1]}"
+    local cmd="${COMP_WORDS[1]}"
+
+    local _subcmds="login set pull push ls path go cr rc cp secret vpn"
+
+    # -----------------------------------------------------------------------
+    # Position 1: subcommand OR bare anchor name
+    # -----------------------------------------------------------------------
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        local names
+        names=$(_anc_names)
+        COMPREPLY=($(compgen -W "$_subcmds $names" -- "$cur"))
+        return
+    fi
+
+    # -----------------------------------------------------------------------
+    # Subcommand dispatch
+    # -----------------------------------------------------------------------
+    case "$cmd" in
+
+        # --- go <name> [--pubkey] -------------------------------------------
+        go)
+            if [[ $COMP_CWORD -eq 2 && "$cur" != -* ]]; then
+                COMPREPLY=($(compgen -W "$(_anc_names)" -- "$cur"))
+            elif [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--pubkey" -- "$cur"))
+            fi
+            ;;
+
+        # --- path <name> ----------------------------------------------------
+        path)
+            if [[ $COMP_CWORD -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "$(_anc_names)" -- "$cur"))
+            fi
+            ;;
+
+        # --- rc <name> ------------------------------------------------------
+        rc)
+            if [[ $COMP_CWORD -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "$(_anc_names)" -- "$cur"))
+            fi
+            ;;
+
+        # --- cr [dir] -------------------------------------------------------
+        cr)
+            # Completes local directories (snapshot source).
+            COMPREPLY=($(compgen -d -- "$cur"))
+            ;;
+
+        # --- ls [flags] -----------------------------------------------------
+        ls)
+            case "$prev" in
+                -f|--filter)
+                    # No useful static completion for filter expressions.
+                    ;;
+                -t|--type)
+                    local types="local ssh url env files workflow ansible docker secret ldap"
+                    COMPREPLY=($(compgen -W "$types" -- "$cur"))
+                    ;;
+                *)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "--filter -f --type -t --remote -r" -- "$cur"))
+                    fi
+                    ;;
+            esac
+            ;;
+
+        # --- pull [name] [flags] --------------------------------------------
+        pull)
+            case "$prev" in
+                -f|--filter) ;;
+                *)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "--filter -f --all --yes -y" -- "$cur"))
+                    elif [[ $COMP_CWORD -eq 2 ]]; then
+                        COMPREPLY=($(compgen -W "$(_anc_names)" -- "$cur"))
+                    fi
+                    ;;
+            esac
+            ;;
+
+        # --- push [name] [flags] --------------------------------------------
+        push)
+            case "$prev" in
+                -f|--filter) ;;
+                *)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "--filter -f --all --yes -y" -- "$cur"))
+                    elif [[ $COMP_CWORD -eq 2 ]]; then
+                        COMPREPLY=($(compgen -W "$(_anc_names)" -- "$cur"))
+                    fi
+                    ;;
+            esac
+            ;;
+
+        # --- set [flags] ----------------------------------------------------
+        set)
+            case "$prev" in
+                --type|-t)
+                    local types="local ssh url env files workflow ansible docker secret ldap"
+                    COMPREPLY=($(compgen -W "$types" -- "$cur"))
+                    ;;
+                --note|-n|--host|-H|--user|-u|--port|-p|--path|-P) ;;
+                *)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W \
+                            "--type -t --note -n --host -H --user -u --port -p --path -P" \
+                            -- "$cur"))
+                    fi
+                    ;;
+            esac
+            ;;
+
+        # --- cp <src>... <dst> [flags] --------------------------------------
+        cp)
+            case "$prev" in
+                -e|--exclude) ;;  # No static completion for rsync patterns.
+                *)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=($(compgen -W "--exclude -e --dry-run -n" -- "$cur"))
+                    else
+                        # src (pos 2) and dst (pos 3): anchor/path or local path.
+                        _anc_complete_anchor_path "$cur"
+                    fi
+                    ;;
+            esac
+            ;;
+
+        # --- secret <subcmd> ------------------------------------------------
+        secret)
+            if [[ $COMP_CWORD -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "ls get push update del" -- "$cur"))
+            fi
+            ;;
+
+        # --- vpn <subcmd> ---------------------------------------------------
+        vpn)
+            if [[ $COMP_CWORD -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "init up down status" -- "$cur"))
+            fi
+            ;;
+
+        # --- login [flags] --------------------------------------------------
+        login)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--url -u --username --password" -- "$cur"))
+            fi
+            ;;
+
+    esac
+}
+
+complete -o nospace -o default -F _anc_autocomplete anc
