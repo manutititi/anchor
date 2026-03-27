@@ -61,6 +61,12 @@ def add_peer(pubkey: str, allowed_ip: str) -> None:
     interface so the server can route reply packets back through the tunnel.
     Without this, servers configured with Address=/32 (instead of /24) would
     have no route for dynamically added peer IPs and replies would be dropped.
+
+    Before registering the new peer, any stale peer that already owns the same
+    IP is evicted from the WireGuard kernel and its host route is removed.
+    This is a safety net for the case where a previous remove_peer call failed
+    (e.g. the sidecar restarted and lost knowledge of existing peers) and the
+    old peer still occupies the AllowedIPs slot or leaves a stale ip route.
     """
     if allowed_ip in _PROTECTED_IPS:
         raise WireGuardError(
@@ -68,9 +74,21 @@ def add_peer(pubkey: str, allowed_ip: str) -> None:
             0,
             f"IP {allowed_ip} is protected and cannot be managed by the sidecar",
         )
+
+    # Evict any stale peer that owns this IP (different pubkey).
+    try:
+        dump = show_dump()
+        for p in dump.peers:
+            if p.allowed_ips.split("/")[0] == allowed_ip and p.public_key != pubkey:
+                _run(["wg", "set", INTERFACE, "peer", p.public_key, "remove"], check=False)
+                _run(["ip", "route", "del", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
+                break
+    except Exception:
+        pass  # best-effort: proceed even if the stale-peer scan fails
+
     _run(["wg", "set", INTERFACE, "peer", pubkey, "allowed-ips", f"{allowed_ip}/32"])
-    # Add host route (idempotent: ignore errors if it already exists)
-    _run(["ip", "route", "add", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
+    # 'replace' is idempotent: creates the route if absent, updates it if present.
+    _run(["ip", "route", "replace", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
 
 
 def remove_peer(pubkey: str) -> None:
