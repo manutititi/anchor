@@ -554,6 +554,7 @@ def vpn_up(
         server_pubkey = cfg.get("server_pubkey", server_pubkey_cfg)
         assigned_ip = cfg.get("assigned_ip", my_ip_str)
 
+        subprocess.run(["sudo", "-v"], check=False)
         with console.status("[bold]Bringing up VPN tunnel…"):
             # Start with split-tunnel (server IP only) so we can reach the API.
             try:
@@ -655,6 +656,9 @@ def vpn_up(
     console.print(f"[dim]Client pubkey: {pubkey}[/dim]")
     console.print(f"[dim]Client IP: {my_ip_str}  Endpoint: {server_endpoint_cfg}[/dim]")
     console.print(f"[dim]Server WG pubkey: {server_pubkey_cfg}[/dim]")
+    # Cache sudo credentials BEFORE the spinner — Rich's live-rendering hides
+    # the password prompt, causing sudo to hang invisibly inside console.status().
+    subprocess.run(["sudo", "-v"], check=False)
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
         time.sleep(5.0)  # allow knock packet to be processed by server + sidecar
         try:
