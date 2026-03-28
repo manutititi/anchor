@@ -652,12 +652,11 @@ def vpn_up(
             raise typer.Exit(1)
 
     # ── 4. Bring up restricted tunnel (onboarding mode) ──────────────────────
+    console.print(f"[dim]Client pubkey: {pubkey}[/dim]")
+    console.print(f"[dim]Client IP: {my_ip_str}  Endpoint: {server_endpoint_cfg}[/dim]")
+    console.print(f"[dim]Server WG pubkey: {server_pubkey_cfg}[/dim]")
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
         time.sleep(5.0)  # allow knock packet to be processed by server + sidecar
-        if debug:
-            console.log(f"[dim]Client IP: {my_ip_str}  Server: {server_endpoint_cfg}[/dim]")
-            console.log(f"[dim]Server pubkey: {server_pubkey_cfg[:20]}…[/dim]")
-            console.log(f"[dim]Client pubkey: {pubkey}[/dim]")
         try:
             _wg_up(privkey, my_ip_str, server_pubkey_cfg, server_endpoint_cfg, f"{server_vpn_ip}/32")
         except RuntimeError as exc:
@@ -665,15 +664,14 @@ def vpn_up(
             raise typer.Exit(1)
 
     # ── 5. Wait for handshake ────────────────────────────────────────────────
-    if debug:
-        console.log("[dim]Interface up — polling for handshake…[/dim]")
-        _show_wg_debug()
+    console.print("[dim]Interface up — waiting for handshake…[/dim]")
+    _show_wg_debug()
     with console.status("[bold]Waiting for tunnel handshake…"):
         ok = _wait_for_handshake(timeout=20.0)
 
     if not ok:
         console.print("[red]Handshake timeout (20 s).[/red]")
-        _show_wg_debug()  # always show state on failure for diagnosis
+        _show_wg_debug()
         _wg_down()
         console.print(
             "Possible causes:\n"
