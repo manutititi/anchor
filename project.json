@@ -357,7 +357,7 @@
       "LONG TERM — GUI client for non-technical users: desktop or web UI (Electron or Tauri, or just expand the existing server web UI) that exposes anchor navigation, VPN toggle, secret access, and file restore without any CLI knowledge. Core design constraint: must not expose raw secret values by default — same vault philosophy, the UI injects/uses secrets without showing them. Target persona: a team member who needs VPN + credentials + project access but is not a developer.",
       "LONG TERM — Automated workspace onboarding: a single command or token that fully configures a new user's environment — pulls their anchors, injects their secrets, brings up their VPN, sets up SSH keys and GitHub access. Builds on the existing provision token concept but extended to the full workspace: 'anc onboard <token>' and the machine is ready to work. Eliminates the need for the user to manually run multiple 'anc' commands or know what anchors exist. Admin defines the workspace profile (which anchors, which secrets, which VPN) and the token encodes it.",
       "VERY LONG TERM — Windows compatibility: the core blocker is that WireGuard management (ip link, wg set), ssh-agent injection, and shell integration are Linux/macOS-specific. WSL2 is a partial path but not a real solution for non-technical users. Native Windows would require: WireGuard Windows API (wireguard-nt), Windows OpenSSH agent (Pageant or the built-in), and a PowerShell or winget-based installer. Not worth approaching until the Linux/macOS surface is stable and there is concrete user demand."
-    ]
+    ],
     "done": [
       "CLI refactor audit + TO DELETE marking + ls --remote + URL handler (session 33): Marked 46 legacy files (core/commands/*, functions/*.sh) with # TO DELETE. Created anchor/handlers/url.py (UrlHandler, opens base_url in browser). Added -r/--remote flag to anc ls (queries GET /anchors from server). Decided: wf.py → TO DELETE, ldap → TO DELETE, sible → inventory-only redefinition.",
       "WireGuard dashboard overhaul (session 27): Live Peers table (sidecar online/age/rx/tx), VPN Users+Leases fusionados, DNS dinámico sin default, logs de provisión (secret create + vpn_lease grant), fix ownership de secreto vault al usuario destino",
@@ -377,6 +377,12 @@
     ]
   },
   "refactor_log": [
+    {
+      "date": "2026-03-28",
+      "session": 37,
+      "change": "Critical VPN fix — three bugs preventing anc vpn up from establishing tunnel. (1) knock.py: missing guard for sidecar client=None — created phantom onboarding leases without registering WireGuard peer. (2) sidecar wg.py: ip route add replaced with ip route replace (idempotent), added stale peer eviction before registering new peer, raise on route failure instead of silent swallow. (3) Dockerfile: added iproute2 (was using BusyBox ip which lacks 'ip route replace'). (4) ui/router.py: fixed TemplateResponse API for Starlette 1.0 (positional args changed). (5) ROOT CAUSE: sudo password prompt hidden by Rich spinner in _wg_up — added sudo -v before console.status() to cache credentials. Reduced post-knock sleep from 5s to 1s. All fixes deployed to production server via SSH.",
+      "files_touched": ["server/code/vpn/knock.py", "server/wireguard/sidecar/app/wg.py", "server/wireguard/sidecar/Dockerfile", "server/code/ui/router.py", "anchor/commands/vpn.py"]
+    },
     {
       "date": "2026-03-27",
       "session": 36,
