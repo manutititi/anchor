@@ -653,14 +653,11 @@ def vpn_up(
             raise typer.Exit(1)
 
     # ── 4. Bring up restricted tunnel (onboarding mode) ──────────────────────
-    console.print(f"[dim]Client pubkey: {pubkey}[/dim]")
-    console.print(f"[dim]Client IP: {my_ip_str}  Endpoint: {server_endpoint_cfg}[/dim]")
-    console.print(f"[dim]Server WG pubkey: {server_pubkey_cfg}[/dim]")
     # Cache sudo credentials BEFORE the spinner — Rich's live-rendering hides
     # the password prompt, causing sudo to hang invisibly inside console.status().
     subprocess.run(["sudo", "-v"], check=False)
     with console.status("[bold]Bringing up tunnel (onboarding mode)…"):
-        time.sleep(5.0)  # allow knock packet to be processed by server + sidecar
+        time.sleep(1.0)  # brief pause for knock to be processed by server
         try:
             _wg_up(privkey, my_ip_str, server_pubkey_cfg, server_endpoint_cfg, f"{server_vpn_ip}/32")
         except RuntimeError as exc:
@@ -668,8 +665,6 @@ def vpn_up(
             raise typer.Exit(1)
 
     # ── 5. Wait for handshake ────────────────────────────────────────────────
-    console.print("[dim]Interface up — waiting for handshake…[/dim]")
-    _show_wg_debug()
     with console.status("[bold]Waiting for tunnel handshake…"):
         ok = _wait_for_handshake(timeout=20.0)
 

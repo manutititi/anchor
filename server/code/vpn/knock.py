@@ -116,8 +116,8 @@ class KnockProtocol(asyncio.DatagramProtocol):
         })
 
         logger.info(
-            "Knock: peer registered uid=%s ip=%s pubkey=%s src=%s",
-            spa.uid, assigned_ip, spa.wg_pubkey, addr,
+            "Knock: peer registered uid=%s ip=%s src=%s",
+            spa.uid, assigned_ip, addr,
         )
 
     def _handle_existing_lease(self, existing: dict, uid: str, leases_col) -> None:
