@@ -5,9 +5,12 @@ Every function wraps a single `wg` invocation via subprocess.
 Errors are raised as WireGuardError so the router can translate them to HTTP 500.
 """
 
+import logging
 import os
 import subprocess
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 INTERFACE = "wg0"
 
@@ -86,6 +89,7 @@ def add_peer(pubkey: str, allowed_ip: str) -> None:
     except Exception:
         pass  # best-effort: proceed even if the stale-peer scan fails
 
+    logger.info("add_peer: wg set %s peer %s allowed-ips %s/32", INTERFACE, pubkey, allowed_ip)
     _run(["wg", "set", INTERFACE, "peer", pubkey, "allowed-ips", f"{allowed_ip}/32"])
     # 'replace' is idempotent: creates the route if absent, updates it if present.
     # This route is CRITICAL: without it the server kernel cannot send reply packets
