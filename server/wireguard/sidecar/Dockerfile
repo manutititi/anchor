@@ -1,6 +1,6 @@
 FROM python:3.12-alpine
 
-RUN apk add --no-cache wireguard-tools
+RUN apk add --no-cache wireguard-tools iproute2
 
 WORKDIR /app
 

@@ -88,7 +88,15 @@ def add_peer(pubkey: str, allowed_ip: str) -> None:
 
     _run(["wg", "set", INTERFACE, "peer", pubkey, "allowed-ips", f"{allowed_ip}/32"])
     # 'replace' is idempotent: creates the route if absent, updates it if present.
-    _run(["ip", "route", "replace", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
+    # This route is CRITICAL: without it the server kernel cannot send reply packets
+    # back through the WireGuard tunnel (wg set alone does NOT create kernel routes).
+    route_result = _run(["ip", "route", "replace", f"{allowed_ip}/32", "dev", INTERFACE], check=False)
+    if route_result.returncode != 0:
+        raise WireGuardError(
+            cmd=f"ip route replace {allowed_ip}/32 dev {INTERFACE}",
+            returncode=route_result.returncode,
+            stderr=route_result.stderr.strip() or "ip route replace failed (no stderr)",
+        )
 
 
 def remove_peer(pubkey: str) -> None:

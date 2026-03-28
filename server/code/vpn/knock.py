@@ -95,8 +95,10 @@ class KnockProtocol(asyncio.DatagramProtocol):
         try:
             from integrations.wireguard.provider import WireGuardProvider
             client = WireGuardProvider().get_client()
-            if client:
-                client.add_peer(spa.wg_pubkey, assigned_ip, spa.uid)
+            if not client:
+                logger.error("Knock: sidecar client unavailable for uid=%s (sidecar_url not configured?)", spa.uid)
+                return
+            client.add_peer(spa.wg_pubkey, assigned_ip, spa.uid)
         except Exception as exc:
             logger.error("Knock: sidecar error for uid=%s: %s", spa.uid, exc)
             return
