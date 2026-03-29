@@ -75,11 +75,15 @@ def _load_vpn_config() -> dict:
         return tomllib.load(f)
 
 
+_SENSITIVE_KEYS = {"seed_b32"}
+
 def _save_vpn_config(cfg: dict) -> None:
     ensure_dirs()
     VPN_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     lines: list[str] = []
     for k, v in cfg.items():
+        if k in _SENSITIVE_KEYS:
+            continue
         if isinstance(v, bool):
             lines.append(f"{k} = {'true' if v else 'false'}")
         elif isinstance(v, str):
