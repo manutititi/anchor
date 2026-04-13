@@ -26,9 +26,41 @@ templates = Jinja2Templates(directory="/app/templates")
 ui_module.set_templates(templates)
 
 
+def _seed_wireguard_integration():
+    """
+    If no wireguard integration config exists in MongoDB, create one from env vars
+    so the server works out of the box without manual UI setup.
+    """
+    from integrations.store import get_config, save_config
+    from config import settings
+
+    if get_config("wireguard") is not None:
+        return
+
+    routes = [r.strip() for r in settings.WG_ROUTES.split(",") if r.strip()]
+    config = {
+        "sidecar_url": settings.WG_SIDECAR_URL,
+        "api_key": settings.WG_API_KEY,
+        "subnet": settings.WG_SUBNET,
+        "server_endpoint": settings.WG_SERVER_ENDPOINT,
+        "lease_hours": settings.WG_LEASE_HOURS,
+        "enabled": True,
+        "knock_port": settings.VPN_KNOCK_PORT,
+        "server_vpn_uid": 1,
+        "routes": routes,
+        "dns": [],
+    }
+    save_config("wireguard", config, ["api_key"], "system")
+    logger.info("Seeded wireguard integration config from env vars")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_client()  # Verify MongoDB is reachable at startup
+
+    # Seed WireGuard integration from env if not yet configured
+    _seed_wireguard_integration()
+
     asyncio.create_task(start_janitor())
 
     # Initialize SPA v2 server keypair

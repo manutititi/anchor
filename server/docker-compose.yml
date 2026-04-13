@@ -31,20 +31,20 @@ services:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Madrid
-      - SERVERURL=auto
-      - SERVERPORT=51820
-      - INTERNAL_SUBNET=10.13.13.0
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
+      - SERVERURL=${SERVERURL:-auto}
+      - SERVERPORT=${SERVERPORT:-51820}
+      - INTERNAL_SUBNET=${INTERNAL_SUBNET:-10.13.13.0}
       # peer1 is the static admin backdoor peer (10.13.13.2).
       # linuxserver generates its config in ./wireguard/config/peer_peer1/.
       # The sidecar protects this IP via WG_PROTECTED_IPS and will never
       # add or remove it. Dynamic users are allocated from 10.13.13.3+.
-      - PEERS=peer1
+      - PEERS=${PEERS:-peer1}
     ports:
-      - "51820:51820/udp"   # WireGuard tunnel (clients connect here)
-      - "62201:62201/udp"   # SPA knock listener (handled by anc-server in same netns)
+      - "${SERVERPORT:-51820}:51820/udp"   # WireGuard tunnel (clients connect here)
+      - "${KNOCK_PORT:-62201}:62201/udp"   # SPA knock listener (handled by anc-server in same netns)
       # 17017/tcp NOT published: clients must connect via VPN first,
       # then reach http://10.13.13.1:17017 inside the tunnel.
     volumes:
@@ -70,6 +70,7 @@ services:
       # Comma-separated IPs the sidecar must NEVER add or remove.
       # 10.13.13.2 = peer1 (static admin backdoor, managed by linuxserver).
       - WG_PROTECTED_IPS=10.13.13.2
+      - WG_API_KEY=${WG_API_KEY}
     depends_on:
       wireguard:
         condition: service_healthy
@@ -81,12 +82,17 @@ services:
     container_name: anc-server
     network_mode: "service:wireguard" # Comparte red con WireGuard
     environment:
-      - MONGO_URI=mongodb://ancadmin:ancpass@mongodb:27017/anchor?authSource=admin
-      - MONGO_DB=anchor
+      - MONGO_URI=mongodb://${MONGO_USER:-ancadmin}:${MONGO_PASS:-ancpass}@mongodb:27017/${MONGO_DB:-anchor}?authSource=admin
+      - MONGO_DB=${MONGO_DB:-anchor}
       - JWT_SECRET=${JWT_SECRET}
       - VAULT_MASTER_KEY=${VAULT_MASTER_KEY}
-      - VPN_KNOCK_PORT=62201   # UDP port for the SPA knock listener
-      - SPA_PRIVKEY_B64=${SPA_PRIVKEY_B64}   # X25519 private key for SPA v2 ECIES
+      - VPN_KNOCK_PORT=${KNOCK_PORT:-62201}
+      - SPA_PRIVKEY_B64=${SPA_PRIVKEY_B64}
+      # WireGuard integration defaults (seeded into MongoDB on first boot)
+      - WG_API_KEY=${WG_API_KEY}
+      - WG_SUBNET=${INTERNAL_SUBNET:-10.13.13.0}/24
+      - WG_SERVER_ENDPOINT=${SERVERURL:-auto}
+      - WG_ROUTES=${ALLOWEDIPS:-0.0.0.0/0}
     depends_on:
       wireguard:
         condition: service_healthy
@@ -104,9 +110,9 @@ services:
     image: mongo:6.0
     container_name: mongodb
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ancadmin
-      MONGO_INITDB_ROOT_PASSWORD: ancpass
-      MONGO_INITDB_DATABASE: anchor
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-ancadmin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS:-ancpass}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-anchor}
     volumes:
       - mongodb_data:/data/db
     networks:

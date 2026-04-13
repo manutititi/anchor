@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     # client knows where to call /auth/login and /vpn/promote over the tunnel
     VPN_SERVER_PORT: int = 17017
 
+    # WireGuard integration defaults — seed the MongoDB integration config
+    # on first boot so the server works out of the box without manual UI setup.
+    # These are only used when no wireguard integration config exists in MongoDB.
+    WG_SIDECAR_URL: str = "http://localhost:8000"
+    WG_API_KEY: str = ""
+    WG_SUBNET: str = "10.13.13.0/24"
+    WG_SERVER_ENDPOINT: str = ""
+    WG_LEASE_HOURS: int = 8
+    WG_ROUTES: str = "0.0.0.0/0"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
