@@ -329,7 +329,7 @@
       "Add tests for anchor/ package — zero coverage on new code",
       "Migrate/deprecate old core/ and functions/ after new CLI is stable",
       "GitHub SSH via vault: anchor pointing to github.com with key as linked_secret → ssh-agent inject with TTL via ssh-add -t. Key never lands in ~/.ssh/. Supports identity segregation (github-personal vs github-work). Implementation: SshHandler already handles this, just needs an anchor type=ssh with host=github.com and linked_secret pointing to the private key in vault. Add anc go <name> --pubkey to print the pub key for adding to GitHub settings.",
-      "AI Masking (anc mask): new anchor type='mask' stored in vault. Fields: rules (map of real→placeholder), seed (for reversible encoding), auto (list of pattern detectors: ip/email/phone/hostname). CLI: cat error.log | anc mask <name> → sanitized stdout; anc unmask <name> < ai_response.txt → restored output. Server: GET /masks/<name> endpoint so browser plugin can fetch profiles. Audit log: server records masking events (user, profile, timestamp) without storing content — for GDPR compliance documentation. Key constraint: anc mask --context mode emits env-var-style placeholders (os.environ['DB_HOST']) so claude-edited code stays syntactically valid."
+      "AI Masking (anc mask): DONE (session 38) — CLI v1 complete. Remaining: server GET /masks/<name> endpoint for browser plugin, audit log, --context mode for env-var-style placeholders"
     ],
     "integrations_next": [
       "Manual testing of LDAP integration end-to-end (login, group sync, test endpoint)",
@@ -377,6 +377,12 @@
     ]
   },
   "refactor_log": [
+    {
+      "date": "2026-03-29",
+      "session": 38,
+      "change": "Implemented anc mask — new anchor type='mask' for sanitizing sensitive data before piping to AI tools. (1) MaskAnchor model (models/anchor.py): rules list (regex→placeholder) + builtin list (ip/email/phone/iban/card). (2) anchor/commands/mask.py: stdin pipe masking with [[ PLACEHOLDER ]] format, AI-facing header comment explaining placeholder consistency, built-in pattern detectors from maskit project, mapping persistence (~/.anchors/mask_maps/) for unmask round-trips, --rules/--add/--rm for rule management. (3) anc set --mask <name> --builtin ip,email for creating mask anchors. Usage: cat error.log | anc mask company | claude.",
+      "files_touched": ["anchor/models/anchor.py", "anchor/commands/mask.py", "anchor/commands/set.py", "anchor/cli.py"]
+    },
     {
       "date": "2026-03-28",
       "session": 37,

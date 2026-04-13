@@ -16,3 +16,6 @@ Thumbs.db
 
 server/.env
 server/wireguard/.env
+
+cache
+cache/

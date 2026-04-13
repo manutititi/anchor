@@ -111,6 +111,17 @@ class LdapAnchor(BaseAnchor):
     bind_dn: Optional[str] = None
 
 
+class MaskRule(_Base):
+    pattern: str
+    placeholder: str
+
+
+class MaskAnchor(BaseAnchor):
+    type: Literal["mask"] = "mask"
+    rules: list[MaskRule] = []
+    builtin: list[str] = []
+
+
 class GenericAnchor(BaseAnchor):
     """Fallback for unknown anchor types."""
 
@@ -125,6 +136,7 @@ _TYPE_MAP: dict[str, type[BaseAnchor]] = {
     "ansible": AnsibleAnchor,
     "docker": DockerAnchor,
     "ldap": LdapAnchor,
+    "mask": MaskAnchor,
 }
 
 

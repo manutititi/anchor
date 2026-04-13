@@ -52,6 +52,7 @@ def set_anchor(
     use_path: bool = typer.Option(False, "--path", "-p", help="Create a local path anchor"),
     use_url:  bool = typer.Option(False, "--url",  "-u", help="Create a URL anchor"),
     use_ssh:  bool = typer.Option(False, "--ssh",  "-s", help="Create an SSH anchor"),
+    use_mask: bool = typer.Option(False, "--mask", "-m", help="Create a mask anchor"),
     # Common
     note:       Optional[str] = typer.Option(None, "--note", "-n", help="Short description"),
     groups_str: Optional[str] = typer.Option(None, "--groups", "-g", help="Comma-separated groups (e.g. dev,ops)"),
@@ -65,21 +66,24 @@ def set_anchor(
     key_secret:  Optional[str] = typer.Option(None, "--key-secret",  help="Vault path for private key (stores [[secret:path]])"),
     pass_secret: Optional[str] = typer.Option(None, "--pass-secret", help="Vault path for password   (stores [[secret:path]])"),
     no_test: bool = typer.Option(False, "--no-test", help="Skip SSH connection test"),
+    # --mask specific
+    builtin: Optional[str] = typer.Option(None, "--builtin", "-b", help="Comma-separated builtin patterns: ip,email,phone,iban,card"),
 ) -> None:
-    """Create a local path, URL, or SSH anchor."""
+    """Create a local path, URL, SSH, or mask anchor."""
 
-    flags = [use_path, use_url, use_ssh]
+    flags = [use_path, use_url, use_ssh, use_mask]
     if sum(flags) == 0:
         err.print(
             "[yellow]Specify the anchor type:[/yellow]\n"
             "  anc set --path <name> [path]\n"
             "  anc set --url  <name> <base_url>\n"
-            "  anc set --ssh  <name> user@host[:port]"
+            "  anc set --ssh  <name> user@host[:port]\n"
+            "  anc set --mask <name> [--builtin ip,email]"
         )
         raise typer.Exit(1)
 
     if sum(flags) > 1:
-        err.print("[red]✗ Use only one of --path / --url / --ssh.[/red]")
+        err.print("[red]✗ Use only one of --path / --url / --ssh / --mask.[/red]")
         raise typer.Exit(1)
 
     args = args or []
@@ -89,6 +93,8 @@ def set_anchor(
         _create_path_anchor(args, note, groups, use_abs, force)
     elif use_url:
         _create_url_anchor(args, note, groups, force)
+    elif use_mask:
+        _create_mask_anchor(args, note, groups, force, builtin)
     else:
         _create_ssh_anchor(args, note, groups, force, identity, port_opt,
                            ask_pass, key_secret, pass_secret, no_test)
@@ -385,6 +391,68 @@ def _create_ssh_anchor(
     out.print(Panel(body, title=f"[bold green]ssh[/bold green]  [bold]{name}[/bold]",
                     border_style="green", padding=(0, 1)))
     info(f"Saved → push with: [bold]anc push {name}[/bold]")
+
+
+# ---------------------------------------------------------------------------
+# Mask anchor
+# ---------------------------------------------------------------------------
+
+def _create_mask_anchor(
+    args: list[str],
+    note: str | None,
+    groups: list[str],
+    force: bool,
+    builtin: str | None,
+) -> None:
+    if not args:
+        err.print(
+            "[yellow]Usage:[/yellow] anc set --mask <name>\n"
+            "[dim]Example: anc set --mask company[/dim]"
+        )
+        raise typer.Exit(1)
+
+    from anchor.commands.mask import ALL_BUILTINS, BUILTIN_PATTERNS
+
+    name = args[0].removesuffix(".json")
+    _check_overwrite(name, force)
+
+    if builtin is not None:
+        builtin_list: list[str] = []
+        for b in builtin.split(","):
+            b = b.strip().lower()
+            if b not in BUILTIN_PATTERNS:
+                err.print(f"[red]Unknown builtin pattern:[/red] {b}")
+                err.print(f"[dim]Available: {', '.join(BUILTIN_PATTERNS)}[/dim]")
+                raise typer.Exit(1)
+            builtin_list.append(b)
+    else:
+        builtin_list = list(ALL_BUILTINS)
+
+    anchor: dict = {
+        "type": "mask",
+        "name": name,
+        "rules": [],
+        "builtin": builtin_list,
+        "groups": groups,
+        "created_at": _now(),
+    }
+    if note:
+        anchor["note"] = note
+
+    save_anchor(name, anchor)
+
+    body = Text()
+    body.append("rules    ", style="dim")
+    body.append("(none — add with: anc mask <name> --add 'pattern=PLACEHOLDER')", style="dim italic")
+    body.append("\nbuiltin  ", style="dim")
+    body.append(", ".join(builtin_list) if builtin_list else "(none)", style="magenta")
+    if groups:
+        body.append("\ngroups   ", style="dim")
+        body.append(", ".join(groups))
+
+    out.print(Panel(body, title=f"[bold yellow]mask[/bold yellow]  [bold]{name}[/bold]",
+                    border_style="yellow", padding=(0, 1)))
+    info(f"Saved → add rules: [bold]anc mask {name} --add 'regex' PLACEHOLDER[/bold]")
 
 
 # ---------------------------------------------------------------------------
