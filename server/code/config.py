@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     WG_SIDECAR_URL: str = "http://localhost:8000"
     WG_API_KEY: str = ""
     WG_SUBNET: str = "10.13.13.0/24"
-    WG_SERVER_ENDPOINT: str = ""
+    WG_SERVER_ENDPOINT: str = ""   # host:port (e.g. 1.2.3.4:51820)
+    WG_SERVERPORT: int = 51820     # used to build endpoint if WG_SERVER_ENDPOINT has no port
     WG_LEASE_HOURS: int = 8
     WG_ROUTES: str = "0.0.0.0/0"
 

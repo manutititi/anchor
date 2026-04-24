@@ -92,6 +92,7 @@ services:
       - WG_API_KEY=${WG_API_KEY}
       - WG_SUBNET=${INTERNAL_SUBNET:-10.13.13.0}/24
       - WG_SERVER_ENDPOINT=${SERVERURL:-auto}
+      - WG_SERVERPORT=${SERVERPORT:-51820}
       - WG_ROUTES=${ALLOWEDIPS:-0.0.0.0/0}
     depends_on:
       wireguard:

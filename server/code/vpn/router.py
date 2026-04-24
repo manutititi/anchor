@@ -365,9 +365,7 @@ def _get_wg_context(provider, admin_username: str) -> tuple[dict, str, str, str,
         raise HTTPException(status_code=502, detail=f"Sidecar unreachable: {exc}")
 
     wg_cfg = provider._get_config() or {}
-    server_endpoint: str = wg_cfg.get("server_endpoint", "")
-    if server_endpoint and ":" not in server_endpoint:
-        server_endpoint = f"{server_endpoint}:51820"
+    server_endpoint: str = provider.get_server_endpoint()
     knock_host = server_endpoint.split(":")[0] if ":" in server_endpoint else server_endpoint
     subnet: str = wg_cfg.get("subnet", "10.13.13.0/24")
     knock_port: int = settings.VPN_KNOCK_PORT or int(wg_cfg.get("knock_port", 0) or 0)

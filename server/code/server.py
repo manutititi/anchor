@@ -38,11 +38,18 @@ def _seed_wireguard_integration():
         return
 
     routes = [r.strip() for r in settings.WG_ROUTES.split(",") if r.strip()]
+
+    # Build endpoint as host:port — if WG_SERVER_ENDPOINT already has a port, use it;
+    # otherwise append WG_SERVERPORT.
+    endpoint = settings.WG_SERVER_ENDPOINT
+    if endpoint and ":" not in endpoint:
+        endpoint = f"{endpoint}:{settings.WG_SERVERPORT}"
+
     config = {
         "sidecar_url": settings.WG_SIDECAR_URL,
         "api_key": settings.WG_API_KEY,
         "subnet": settings.WG_SUBNET,
-        "server_endpoint": settings.WG_SERVER_ENDPOINT,
+        "server_endpoint": endpoint,
         "lease_hours": settings.WG_LEASE_HOURS,
         "enabled": True,
         "knock_port": settings.VPN_KNOCK_PORT,
