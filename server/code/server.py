@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 logging.basicConfig(level=logging.INFO)
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from db.client import get_client, close_client
 from auth.middleware import AuthMiddleware
@@ -137,6 +138,8 @@ app.include_router(dashboard_router)
 app.include_router(integrations_router, prefix="/integrations")
 app.include_router(vpn_router, prefix="/vpn")
 app.include_router(ui_module.router, prefix="/ui")
+
+app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
 @app.get("/", include_in_schema=False)
 def root():

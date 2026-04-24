@@ -873,6 +873,19 @@
       "files_touched": [
         "docs/features/knock.md"
       ]
+    },
+    {
+      "date": "2026-04-24",
+      "session": 39,
+      "change": "Full frontend redesign — removed all external CDN dependencies (Tailwind CDN + Alpine.js CDN) for supply chain security. (1) server/static/alpine.min.js: Alpine.js 3.14.1 pinned and served locally. (2) server/static/anchor.css: custom dark design system — CSS variables, full utility class set (Tailwind-compatible names, dark theme values), responsive sidebar with mobile hamburger toggle. (3) server.py: added StaticFiles mount at /static. (4) base.html: replaced CDN refs with /static/, added responsive sidebar with overlay+backdrop on mobile, mobile top bar with hamburger. (5) login.html: dark redesign, removed CDN refs. (6) setup.html: dark redesign, removed CDN refs. All content templates (secrets, users, logs, anchors, integrations, wireguard) inherit the new CSS automatically with no logic changes.",
+      "files_touched": [
+        "server/static/alpine.min.js",
+        "server/static/anchor.css",
+        "server/code/server.py",
+        "server/templates/base.html",
+        "server/templates/login.html",
+        "server/templates/setup.html"
+      ]
     }
   ]
 }
