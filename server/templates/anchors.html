@@ -32,6 +32,7 @@
       <option value="local">local</option>
       <option value="files">files</option>
       <option value="wf">wf</option>
+      <option value="mask">mask</option>
     </select>
   </div>
 
@@ -154,8 +155,8 @@
         <!-- Type selector -->
         <div>
           <label class="label">Type *</label>
-          <div class="grid grid-cols-4 gap-2">
-            <template x-for="t in ['ssh','local','files','wf']" :key="t">
+          <div class="grid grid-cols-5 gap-2">
+            <template x-for="t in ['ssh','local','files','wf','mask']" :key="t">
               <button type="button"
                       @click="cForm.type=t"
                       :class="cForm.type===t
@@ -382,6 +383,75 @@
             <span x-show="cForm.type==='wf'">
               ⚙️ Create the anchor here, then define tasks from the CLI or by editing the JSON directly.
             </span>
+          </div>
+        </template>
+
+        <!-- Mask-specific fields -->
+        <template x-if="cForm.type==='mask'">
+          <div class="space-y-5">
+
+            <!-- Built-in detectors -->
+            <div>
+              <label class="label">Built-in detectors</label>
+              <p class="text-xs text-gray-400 -mt-0.5 mb-2">
+                Auto-detect common sensitive patterns and replace them with numbered placeholders.
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="b in ['ip','email','phone','iban','card']" :key="b">
+                  <button type="button"
+                          @click="toggleBuiltin(cForm.builtin, b)"
+                          :class="cForm.builtin.includes(b)
+                            ? 'bg-rose-600 text-white border-rose-600'
+                            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'"
+                          class="border rounded px-3 py-1.5 text-xs font-medium transition-colors capitalize"
+                          x-text="b">
+                  </button>
+                </template>
+              </div>
+              <p x-show="cForm.builtin.length" class="text-xs text-gray-400 mt-1.5">
+                Each unique match gets a numbered placeholder:
+                <code class="bg-gray-100 px-1 rounded">[[ IP_1 ]]</code>,
+                <code class="bg-gray-100 px-1 rounded">[[ EMAIL_2 ]]</code>, etc.
+              </p>
+            </div>
+
+            <!-- Custom rules -->
+            <div>
+              <label class="label">Custom rules</label>
+              <p class="text-xs text-gray-400 -mt-0.5 mb-2">
+                Regex patterns with a fixed placeholder name — useful for company names, project IDs, etc.
+              </p>
+              <div class="space-y-1.5">
+                <div x-show="cForm.rules.length"
+                     class="grid text-xs font-medium text-gray-400 mb-1 px-0.5"
+                     style="grid-template-columns:1fr 8.5rem 1.5rem">
+                  <span>Pattern (regex)</span>
+                  <span>Placeholder name</span>
+                </div>
+                <template x-for="(rule, i) in cForm.rules" :key="i">
+                  <div class="flex gap-2 items-center">
+                    <input x-model="rule.pattern" placeholder="Acme S\.L\."
+                           class="input text-xs font-mono flex-1" />
+                    <input x-model="rule.placeholder" placeholder="COMPANY"
+                           @input="rule.placeholder = rule.placeholder.toUpperCase().replace(/\s+/g,'_')"
+                           class="input text-xs font-mono uppercase" style="width:8.5rem" />
+                    <button type="button" @click="cForm.rules.splice(i,1)"
+                            class="text-red-400 hover:text-red-600 px-1 shrink-0 text-sm leading-none">✕</button>
+                  </div>
+                </template>
+                <button type="button"
+                        @click="cForm.rules.push({pattern:'',placeholder:''})"
+                        class="text-xs text-blue-600 hover:underline mt-1">
+                  + Add rule
+                </button>
+              </div>
+              <p class="text-xs text-gray-400 mt-2">
+                Each pattern match becomes
+                <code class="bg-gray-100 px-1 rounded">[[ COMPANY ]]</code>.
+                Usage: <code class="bg-gray-100 px-1 rounded">cat log.txt | anc mask <em>name</em></code>
+              </p>
+            </div>
+
           </div>
         </template>
 
@@ -660,6 +730,62 @@
             <span x-show="eForm.type==='wf'">
               ⚙️ Workflow tasks are managed via the CLI. Edit note and groups here.
             </span>
+          </div>
+        </template>
+
+        <!-- Mask fields (edit) -->
+        <template x-if="eForm.type==='mask'">
+          <div class="space-y-5">
+
+            <!-- Built-in detectors -->
+            <div>
+              <label class="label">Built-in detectors</label>
+              <p class="text-xs text-gray-400 -mt-0.5 mb-2">
+                Toggle which patterns are active. Changes take effect immediately on next use.
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="b in ['ip','email','phone','iban','card']" :key="b">
+                  <button type="button"
+                          @click="toggleBuiltin(eForm.builtin, b)"
+                          :class="eForm.builtin.includes(b)
+                            ? 'bg-rose-600 text-white border-rose-600'
+                            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'"
+                          class="border rounded px-3 py-1.5 text-xs font-medium transition-colors capitalize"
+                          x-text="b">
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- Custom rules -->
+            <div>
+              <label class="label">Custom rules</label>
+              <div class="space-y-1.5">
+                <div x-show="eForm.rules.length"
+                     class="grid text-xs font-medium text-gray-400 mb-1 px-0.5"
+                     style="grid-template-columns:1fr 8.5rem 1.5rem">
+                  <span>Pattern (regex)</span>
+                  <span>Placeholder name</span>
+                </div>
+                <template x-for="(rule, i) in eForm.rules" :key="i">
+                  <div class="flex gap-2 items-center">
+                    <input x-model="rule.pattern" placeholder="Acme S\.L\."
+                           class="input text-xs font-mono flex-1" />
+                    <input x-model="rule.placeholder" placeholder="COMPANY"
+                           @input="rule.placeholder = rule.placeholder.toUpperCase().replace(/\s+/g,'_')"
+                           class="input text-xs font-mono uppercase" style="width:8.5rem" />
+                    <button type="button" @click="eForm.rules.splice(i,1)"
+                            class="text-red-400 hover:text-red-600 px-1 shrink-0 text-sm leading-none">✕</button>
+                  </div>
+                </template>
+                <button type="button"
+                        @click="eForm.rules.push({pattern:'',placeholder:''})"
+                        class="text-xs text-blue-600 hover:underline mt-1">
+                  + Add rule
+                </button>
+              </div>
+            </div>
+
           </div>
         </template>
 
@@ -961,6 +1087,7 @@ function anchorsPage() {
       key: '',     keyMode: 'new-secret',       keySecretPath: '',
       showRoutes: false, routes: [],
       path: '', note: '', groups: [], newGroup: '',
+      builtin: [], rules: [],
     },
 
     // Edit form
@@ -970,6 +1097,7 @@ function anchorsPage() {
       key: '',     keyMode: 'plain',       keySecretPath: '',
       showRoutes: false, routes: [],
       path: '', note: '',
+      builtin: [], rules: [],
     },
 
     // Permissions form
@@ -1078,6 +1206,7 @@ function anchorsPage() {
         local: 'bg-green-100 text-green-800',
         files: 'bg-orange-100 text-orange-800',
         wf:    'bg-purple-100 text-purple-800',
+        mask:  'bg-rose-100 text-rose-800',
       };
       return map[type] || 'bg-gray-100 text-gray-800';
     },
@@ -1090,6 +1219,7 @@ function anchorsPage() {
         key: '',     keyMode: 'new-secret',       keySecretPath: '',
         showRoutes: false, routes: [],
         path: '', note: '', groups: [], newGroup: '',
+        builtin: [], rules: [],
       };
       this.modalError = '';
       this.modal = 'create';
@@ -1148,6 +1278,14 @@ function anchorsPage() {
         if (validRoutes.length) body.routes = validRoutes;
       } else if (f.type === 'local') {
         body.path = f.path;
+      } else if (f.type === 'mask') {
+        body.builtin = [...(f.builtin || [])];
+        body.rules = (f.rules || [])
+          .filter(r => r.pattern.trim() && r.placeholder.trim())
+          .map(r => ({
+            pattern: r.pattern.trim(),
+            placeholder: r.placeholder.trim().toUpperCase().replace(/\s+/g, '_'),
+          }));
       }
       return body;
     },
@@ -1183,6 +1321,8 @@ function anchorsPage() {
         routes: (a.routes || []).map(r => ({ ...r })),
         path: a.path || '',
         note: a.note || '',
+        builtin: [...(a.builtin || [])],
+        rules: (a.rules || []).map(r => ({ ...r })),
       };
       this.modalError = '';
       this.modal = 'edit';
@@ -1223,6 +1363,14 @@ function anchorsPage() {
           patch.routes = (f.routes || []).filter(r => r.path.trim());
         } else if (f.type === 'local') {
           patch.path = f.path;
+        } else if (f.type === 'mask') {
+          patch.builtin = [...(f.builtin || [])];
+          patch.rules = (f.rules || [])
+            .filter(r => r.pattern.trim() && r.placeholder.trim())
+            .map(r => ({
+              pattern: r.pattern.trim(),
+              placeholder: r.placeholder.trim().toUpperCase().replace(/\s+/g, '_'),
+            }));
         }
         const r = await fetch('/anchors/' + f.name, {
           method: 'PATCH',
@@ -1334,6 +1482,12 @@ function anchorsPage() {
     },
 
     // ── Helpers ───────────────────────────────────────────
+    toggleBuiltin(arr, val) {
+      const i = arr.indexOf(val);
+      if (i === -1) arr.push(val);
+      else arr.splice(i, 1);
+    },
+
     addTag(arr, value) {
       const v = (value || '').trim();
       if (v && !arr.includes(v)) arr.push(v);

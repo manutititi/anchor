@@ -329,7 +329,7 @@
       "Add tests for anchor/ package — zero coverage on new code",
       "Migrate/deprecate old core/ and functions/ after new CLI is stable",
       "GitHub SSH via vault: anchor pointing to github.com with key as linked_secret → ssh-agent inject with TTL via ssh-add -t. Key never lands in ~/.ssh/. Supports identity segregation (github-personal vs github-work). Implementation: SshHandler already handles this, just needs an anchor type=ssh with host=github.com and linked_secret pointing to the private key in vault. Add anc go <name> --pubkey to print the pub key for adding to GitHub settings.",
-      "AI Masking (anc mask): DONE (session 38) — CLI v1 complete. Remaining: server GET /masks/<name> endpoint for browser plugin, audit log, --context mode for env-var-style placeholders"
+      "AI Masking (anc mask): DONE (session 38) — CLI v1 complete. Web UI create/edit added (session 40). Remaining: server GET /masks/<name> endpoint for browser plugin, audit log, --context mode for env-var-style placeholders"
     ],
     "integrations_next": [
       "Manual testing of LDAP integration end-to-end (login, group sync, test endpoint)",
@@ -873,6 +873,12 @@
       "files_touched": [
         "docs/features/knock.md"
       ]
+    },
+    {
+      "date": "2026-04-24",
+      "session": 40,
+      "change": "Added mask anchor type to server UI (anchors.html). (1) Type filter dropdown: added 'mask' option. (2) Create modal: added mask to type selector pills (grid-cols-5), added mask-specific section with built-in detector toggle pills (ip/email/phone/iban/card) and a custom rules table (regex pattern + placeholder name, add/remove rows). (3) Edit modal: same mask-specific section pre-populated from anchor data. (4) JS: added typeBadge for mask (rose), toggleBuiltin() helper, extended cForm/eForm/openCreate with builtin/rules fields, openEdit() reads builtin+rules from anchor, _buildCreateBody() and updateAnchor() patch both fields for mask type.",
+      "files_touched": ["server/templates/anchors.html"]
     },
     {
       "date": "2026-04-24",
