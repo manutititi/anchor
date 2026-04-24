@@ -43,6 +43,7 @@ from anchor.config import (
     ensure_dirs,
     load_credentials,
     save_credentials,
+    set_server_url,
 )
 from anchor.client import AnchorClient, AnchorClientError, NotAuthenticatedError
 
@@ -297,7 +298,11 @@ def _token_valid(token: str) -> bool:
 
 
 def _do_login(server_url: str, username: str) -> Optional[str]:
-    """Prompt for password, POST /auth/login, return JWT or None."""
+    """Prompt for password, POST /auth/login, return JWT or None.
+
+    On success, also persists server_url to config.toml so that
+    subsequent ``anc`` commands work without a separate ``anc login``.
+    """
     try:
         password = getpass.getpass(f"Password for {username}: ")
         resp = requests.post(
@@ -306,7 +311,10 @@ def _do_login(server_url: str, username: str) -> Optional[str]:
             timeout=10,
         )
         if resp.status_code == 200:
-            return resp.json().get("access_token")
+            token = resp.json().get("access_token")
+            if token:
+                set_server_url(server_url)
+            return token
         console.print(f"[red]Login failed:[/red] {resp.json().get('detail', resp.status_code)}")
     except Exception as exc:
         console.print(f"[red]Login error:[/red] {exc}")
